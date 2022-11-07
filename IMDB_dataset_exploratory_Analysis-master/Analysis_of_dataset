@@ -1,0 +1,96 @@
+library(caret)
+library(dplyr)
+library(ggplot2)
+library(GGally)
+library(randomForest)
+
+
+
+# our dataset
+dataset <- read.csv("movie_metadata.csv", header = T, stringsAsFactors = F)
+
+#look for missing values
+sum(is.na(dataset))
+colSums(is.na(dataset))
+
+#There are lot of missing values, lets look at the proportion of missing values
+mean(is.na(dataset))
+
+#it's not much so we can exclude missing values from our prediction process without any fear.
+dataset <- na.omit(dataset)
+
+#formalities, get a peak into the dataset.
+str(dataset)
+summary(dataset)
+
+#let's look at our pairs plot and find any correlations between our variables.
+ggpairs(df, diag = list(continuous = "density", discrete = "bar"), axisLabels = "internal")
+
+#let's look at nearzeroVariation variables.
+nearZeroVar(dataset, saveMetrics = T)
+
+#look at the directors with most movies under their belt.
+directors <- as.data.frame(table(dataset$director_name))
+directors <- arrange(directors, desc(Freq))
+ggplot(head(directors, 10), aes(x = reorder(factor(Var1), Freq), y = Freq, alpha = Freq)) + geom_bar(stat = "identity", fill = "blue") + labs(x = "Directors", y = "Number of movies") + ggtitle("Top 10 directors with most movies") + coord_flip() + theme_classic()
+
+#Actors with most movies under their belt.
+actors <- cbind(actors, dataset$actor_2_name, dataset$actor_1_name, dataset$actor_3_name)
+actors <- as.data.frame(table(dataset$actor_1_name))
+actors <- arrange(actors, desc(Freq))
+ggplot(head(actors, 20), aes(x = reorder(factor(Var1), Freq), y = Freq, alpha = Freq)) + geom_bar(stat = "identity", fill = "blue") + labs(x = "Actors", y = "Number of movies") + ggtitle("Top 10 actors with most movies") + coord_flip() + theme_dark()
+
+#Movies with languages
+language <- as.data.frame(table(dataset$language))
+language <- arrange(language, desc(Freq))
+ggplot(language, aes(x = reorder(factor(Var1), Freq), y = Freq)) + geom_bar(stat = "identity", fill = "blue") + labs(x = "Languages", y = "Number of movies") + ggtitle("Total number of movies with different languages") + coord_flip() + theme_bw()
+
+#Movies from respective countries
+country <- as.data.frame(table(dataset$country))
+ggplot(country, aes(x = reorder(factor(Var1), Freq), y = Freq)) + geom_bar(stat = "identity", fill = "blue") + labs(x = "Countries", y = "Number of movies") + ggtitle("Total number of movies from every country") + coord_flip() + theme_get()
+
+#Year with higest movie production.
+year <- as.data.frame(table(dataset$title_year))
+year <- arrange(year, desc(Freq))
+ggplot(year[1:30,], aes(x = reorder(factor(Var1), Freq), y = Freq, alpha = Freq)) + geom_bar(stat = "identity", fill = "blue") + labs(x = "Years", y = "Number of movies") + ggtitle("Total number of movies every year") + coord_flip() + theme_dark()
+
+#movies filmed in different aspect ratios.
+aspect <- as.data.frame(table(dataset$aspect_ratio))
+ggplot(aspect, aes(x = reorder(factor(Var1), Freq), y = Freq, alpha = Freq)) + geom_bar(stat = "identity", fill = "blue") + labs(x = "Aspect", y = "Number of movies") + ggtitle("Nmber of movies with different aspect ratio") +coord_flip() + theme_light()
+
+#Ratings given to movies
+rating <- as.data.frame(table(dataset$content_rating))
+rating <- arrange(rating, desc(Freq))
+ggplot(rating, aes(x = reorder(factor(Var1), Freq), y = Freq)) + geom_bar(stat = "identity", fill = "blue") + labs(x = "Contents", y = "Number of movies") + ggtitle("Number of movies with different content ratings") + coord_flip() + theme_light() 
+
+
+#let us first look at the distribution of our target variable
+ggplot(df, aes(x = imdb_score))+ geom_histogram(stat = "bin", fill = "blue") +ggtitle(paste("Distribution of", names(df)[14])) + theme_dark()
+
+
+#The ggpairs plot gave us the correlation of different variables, so we can now 
+#pick look at the extent of correlation between the respective variables in two dimensional'
+#plot. I have picked variables that have correlations greater than .50 but, still, i included 
+#some variables correlation less than .50 but coser to it.
+ggplot(df, aes(x = df[, 7], y = df[, 1])) + geom_point(color = "blue") + labs(x = names(df)[7], y = names(df)[1]) + stat_smooth(method = lm, se = F, color = "red") +theme_grey() + ggtitle(paste("cor:", 0.595)) + geom_smooth(color = "black")
+
+ggplot(df, aes(x = df[, 8], y = df[, 5])) + geom_point(color = "blue") + labs(x = names(df)[8], y = names(df)[5]) + stat_smooth(method = lm, se = F, color = "red") +theme_grey() + ggtitle(paste("cor:", 0.945)) + geom_smooth(color = "black")
+
+ggplot(df, aes(x = df[, 16], y = df[, 1])) + geom_point(color = "blue") + labs(x = names(df)[16], y = names(df)[1]) + stat_smooth(method = lm, se = F, color = "red") +theme_grey() + ggtitle(paste("cor:", 0.704)) + geom_smooth(color = "black")
+
+ggplot(df, aes(x = df[, 8], y = df[, 4])) + geom_point(color = "blue") + labs(x = names(df)[8], y = names(df)[4]) + stat_smooth(method = lm, se = F, color = "red") +theme_grey() + ggtitle(paste("cor:", 0.49)) + geom_smooth(color = "black")
+
+ggplot(df, aes(x = df[, 10], y = df[, 7])) + geom_point(color = "blue") + labs(x = names(df)[10], y = names(df)[7]) + stat_smooth(method = lm, se = F, color = "red") +theme_grey() + ggtitle(paste("cor:", 0.78)) + geom_smooth(color = "black")
+
+ggplot(df, aes(x = df[, 10], y = df[, 6])) + geom_point(color = "blue") + labs(x = names(df)[10], y = names(df)[6]) + stat_smooth(method = lm, se = F, color = "red") +theme_grey() + ggtitle(paste("cor:", 0.547)) + geom_smooth(color = "black")
+
+ggplot(df, aes(x = df[, 13], y = df[, 4])) + geom_point(color = "blue") + labs(x = names(df)[13], y = names(df)[4]) + stat_smooth(method = lm, se = F, color = "red") +theme_grey() + ggtitle(paste("cor:", 0.554)) + geom_smooth(color = "black")
+
+ggplot(df, aes(x = df[, 16], y = df[, 7])) + geom_point(color = "blue") + labs(x = names(df)[16], y = names(df)[7]) + stat_smooth(method = lm, se = F, color = "red") +theme_grey() + ggtitle(paste("cor:", 0.519)) + geom_smooth(color = "black")
+
+ggplot(df, aes(x = df[, 10], y = df[, 1])) + geom_point(color = "blue") + labs(x = names(df)[10], y = names(df)[1]) + stat_smooth(method = lm, se = F, color = "red") +theme_grey() + ggtitle(paste("cor:", 0.567)) + geom_smooth(color = "black")
+
+ggplot(df, aes(x = df[, 14], y = df[, 7])) + geom_point(color = "blue") + labs(x = names(df)[14], y = names(df)[7]) + stat_smooth(method = lm, se = F, color = "red") +theme_grey() + ggtitle(paste("cor:", 0.478)) + geom_smooth(color = "black")
+
+#Finally we look athe the featurePlot with respect to our target variable.
+featurePlot(x = df[, !names(df) %in% c("imdb_score")], y = df$imdb_score, plot = "scatter")

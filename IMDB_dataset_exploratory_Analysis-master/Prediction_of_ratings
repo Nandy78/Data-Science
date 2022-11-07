@@ -1,0 +1,59 @@
+#loading required libraries.
+library(randomForest)
+
+#Get our dataset
+dataset <- read.csv("movie_metadata.csv", header = T, stringsAsFactors = F)
+
+#We look at mising values.
+sum(is.na(dataset))
+colSums(is.na(dataset))
+
+#Proportion of our missing values
+mean(is.na(dataset))
+
+#We exclude the missing values because it doesn't affect our  prediction process.
+dataset <- na.omit(dataset)
+str(dataset)
+
+#We don't needxharacter or factor features for our prediction process either, so we exclude them, too. 
+df <- dataset[, c(3, 4, 5, 6, 8, 9, 13, 14, 16, 19, 23, 24, 25, 26, 27, 28)]
+
+#Take a peak into our dataset
+str(df)
+summary(df)
+
+#nearZeo variation variables.
+nearZeroVar(dataset, saveMetrics = T)
+
+#Sample and split our data.
+df <- df[sample(nrow(df)), ]
+train <- df[1:2000,]    
+validation <- df[2001: 2801, ]
+test <- df[2802:nrow(df), ]
+
+#Prediction algorithm
+set.seed(5)
+r <- randomForest(imdb_score~., data = train, mtry = 5)
+p <- predict(r, validation)
+sqrt((sum((validation$imdb_score - p)^2))/ nrow(validation))
+
+#it gives RMSE 0.7162762
+
+#we look at the importance of each variable.
+varImpPlot(r)
+
+#aspect_ratio and facenumber_in_poster stand at last when it comes to contribution in prediction process, 
+#so we exclude them in our next prediction algorithm.
+
+set.seed(5)
+rf <- randomForest(imdb_score~num_critic_for_reviews + duration + director_facebook_likes + actor_3_facebook_likes + actor_1_facebook_likes + gross + num_voted_users + cast_total_facebook_likes + num_user_for_reviews + budget + title_year + actor_2_facebook_likes + movie_facebook_likes, data = train, mtry = 5)
+pred <- predict(rf, validation)
+sqrt((sum((validation$imdb_score - pred)^2))/ nrow(validation))
+
+#it gives RMSE 0.713479, exclusion of those 2 variable definitely helped us.
+
+#prediction on test dataset
+predT <- prediction(rf, test)
+sqrt((sum((test$imdb_score - pred)^2))/ nrow(test))
+
+#RMSE - 0.7233608
