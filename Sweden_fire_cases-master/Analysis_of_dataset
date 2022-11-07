@@ -1,0 +1,114 @@
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+library(plotly)
+
+#Our dataset
+dataset <- read.csv("school_fire_cases_1998_2014.csv", header = T, stringsAsFactors = F) 
+
+#Formalities
+str(dataset)
+summary(dataset)
+
+#This plot tells us about the total municipalities with at least one fire case over the years
+dataset2 <- dataset %>% filter(!is.na(Cases) & Cases > 0) %>% group_by(Year) %>% summarise(Count = n())
+mun <- ggplot(dataset2, aes(y = Count, x = Year, group = 1)) + geom_line(linetype = 1, size = 1, col = "red") + geom_point(shape = 20, size = 3, fill = "white") + theme_dark() + xlab("years") + ylab("number of Municipalities") + scale_x_discrete(breaks = seq(from= 1998, to = 2014, by= 1)) + ggtitle("Total number of Municpalities with at least one case every year")
+plot_ly(dataset2, x = ~Year, y = ~Count, type = "scatter", mode = "markers", color= ~Count) %>% add_lines() %>% layout(title = "<b>Total municipalities with at least one case by every year</b>", xaxis = list(title = "<i>Year<i>"), yaxis = list(title = "<i>Number of municipalities</i>"))
+
+#This plot tells us total number of fire cases from all the 290 municipalities over the years.
+year <- dataset  %>% group_by(Year) %>% summarise(Count = sum(Cases))
+year.plot <- ggplot(year, aes(y = Count, x = Year, group = 1)) + geom_line(linetype = 1, size = 1, col = "red") + geom_point(shape = 20, size = 3, fill = "white") + theme_dark() + xlab("years") + ylab("number of Cases") + scale_x_continuous(breaks = seq(from= 1998, to = 2014, by= 1)) + ggtitle("Total number of cases per Year")
+#ggplotly(year.plot)
+plot_ly(year, x = ~Year, y = ~Count, type = "scatter", mode = "markers", color= ~Count) %>% add_lines() %>% layout(title = "<b>Total number of cases in all municipalities every year</b>", xaxis = list(title = "<i>Year<i>"), yaxis = list(title = "<i>Total cases</i>"))
+
+
+grid.arrange(year.plot, mun, nrow = 2, ncol = 1)
+
+#Hmm so this explains the sudden spike for the increase in total number of cases,
+#the increase in municipalities having cases at least one may have led to increase in the total fire cases of all school
+#this can also mean that if we control the spread of fire cases to all other municipality, we should be able to slightly control the increase of fire cases.
+#We also see the decrease in cases since the suden spike of 2008, we can incur that 
+#this could be because of some external effects and government may have taken necessary steps to curb the number of
+#fire cases. We will use this information to recommend some municipalities to look after on priority basis and also municpalities 
+#from where they can learn and apply the same steps on other municipalities.
+#Though this is not enough and we should look for other ways to decrease the total fire cases
+
+#Now we look at Municipalities.
+municipality <- dataset %>% group_by(Municipality) %>% summarise(Total = sum(Cases)) %>% arrange(desc(Total))
+#mun2 <- ggplot(head(municipality, 20)) + geom_bar(mapping = aes(x = reorder(factor(Municipality), Total), y = Total, fill = Total), stat = "identity") + labs(x = "Municipality", y = "Total cases", title = "Total cases of top 20 municipality over the years") + coord_flip()
+#ggplotly(mun2)
+plot_ly(municipality[1:20,], x = ~Total, y = ~Municipality, color = ~Total, type = "bar", orientation = "h") %>% layout(title = "<b>Total cases of top 20 municipality over the years</b>", xaxis = list(title = "<i>Municipality<i>"), yaxis = list(title = "<i>Total cases</i>"))
+#We have to see how many of these municipality with high cases have remained on top in the year 2014 too.
+
+
+#I wanted to know that does the increase in population explains the increase in fire cases.
+#So i compared the figures of population of years equidistant from each other and looked at their
+#respective fire Cases
+
+#Year-1998
+data <- dataset %>% filter(Year == 1998)
+summary(data)
+
+
+#Year-2006
+data1 <- dataset %>% filter(Year == 2006)
+summary(data1)
+
+#Year-2014
+data2 <- dataset %>% filter(Year == 2014)
+data2$Diff <- data2$Population - data$Population
+
+data1$Diff <- data1$Population - data$Population
+
+#we look at number of cases while the population increased in the respective municipalities
+popIncrease <- data1 %>% filter(Diff > 0)
+y <- ggplot(popIncrease, aes(x = Cases)) + geom_histogram(stat = "bin", fill = "black", col = "white") + ggtitle("The number of cases as the population increased")
+#ggplotly(y)
+plot_ly(popIncrease, x = ~Cases, type = "histogram") %>% layout(title = "<b>Counts of municipality in given Cases with increase of pop'</b>", xaxis = list(title = "<i>Cases</i>"), yaxis = list(title = "<i>Count of Municipality</i>"))
+
+#we look at number of cases while the population decreased in the respective municipalities.
+popDecrease <- data1 %>% filter(Diff < 0)
+x <- ggplot(popDecrease, aes(x = Cases)) + geom_histogram(stat = "bin", fill = "black", col = "white") + ggtitle("The number of cases as the population decreased")
+#ggplotly(x)
+plot_ly(popDecrease, x = ~Cases, type = "histogram")%>% layout(title = "<b>Counts of municipality in given Cases with decrease of pop'</b>", xaxis = list(title = "<i>Cases</i>"), yaxis = list(title = "<i>Count of Municipality</i>"))
+#now we look at the combined plot.
+grid.arrange(y, x, nrow = 2)
+
+#From this, we can infer that irrespective of increase or decrease in population of municipalities
+#fire cases occur, though, as the population of municipality increase, the probability of 
+#occuring one or more than one fire case increases.
+
+
+#Now we give a dataset which includes the names of municipality that
+#appear in 2008, 2006 and 2014 and has difference of two or more between
+#the number of case of 2008 and 2006.
+
+data1$extreme <- ifelse(abs(data1$Cases - data$Cases) >= 2, "Yes", "No")
+
+extr <- data1 %>% filter(extreme == "Yes")
+#we have 48 observations.Now, we manually look for the same municipality in 2014 irrespective 
+#of the difference between their corresponding municipality cases and if they have more than 0 case.
+
+#The names of municipalities where utmost priority should be given to look for
+#the causes of fire cases
+importantMunicipalities <- extr[c(32, 34, 39, 40, 42, 44, 45, 47, 2, 4, 7, 8, 10, 11, 12, 14, 15, 17, 19, 21, 23, 24, 26, 27, 28), ]
+importantMunicipalities <- arrange(importantMunicipalities, desc(Cases))
+
+#we can also say that these are the municipalities that contributed most to the extent of fire case from 1998 to 2014.
+#So even if the swedish government didn't take any step and the sudden decrease in 
+#number of cases isn't explained by any external factor, still these municipalities should be looked over on priority basis.
+
+#impMun <-ggplot(importantMunicipalities) + geom_bar(stat = "identity", aes(x = reorder(factor(Municipality), Cases), y = Cases, fill = Cases)) + theme_get() + coord_flip() + labs(x = "Municipality", y = "Number of cases") + ggtitle("Municipalities for priority basis")
+#ggplotly(impMun)
+plot_ly(importantMunicipalities, y = ~Municipality, type = "bar", x = ~Cases, text = ~paste("Population:",Population), color = ~Cases, colors = "BrBG")%>% layout(title = "<b>Extreme Municipalities</b>", xaxis = list(title = "<i><b>Cases<b><i>"), yaxis = list(title = "<i><b>Municipality</b></i>"))
+
+
+#the municipalities from where the governement should learn and apply the same 
+#procedures or steps, if they have, to not only the municipalities on priority but
+#also to other municipalities.
+learnigMunicipalities <- extr[-c(32, 34, 39, 40, 42, 44, 45, 47, 2, 4, 7, 8, 10, 11, 12, 14, 15, 17, 19, 21, 23, 24, 26, 27, 28),]
+
+#leaMun <- ggplot(learnigMunicipalities, aes(x = reorder(factor(Municipality), Cases), y = Cases)) + geom_bar(stat = "identity", fill = "blue") + theme_get() + coord_flip() + labs(x = "Municipality", y = "Number of cases") + ggtitle("Municipalities for learning")
+#ggplotly(leaMun)
+
+plot_ly(learnigMunicipalities, x = ~Cases, y = ~Municipality, type = "bar", text = ~paste("Population:", Population) ,color = ~Cases, colors = "Spectral")%>% layout(title = "<b>Learning Municipalities</b>", xaxis = list(title = "<i><b>Cases</b><i>"), yaxis = list(title = "<i><b>Municipality</b></i>"))
