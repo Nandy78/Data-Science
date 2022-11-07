@@ -1,4 +1,4 @@
-# Grocery-Sales-Forecasting
+# Grocery Sales Forecasting
 
 In this competition, the contestants are challenged to forecasts forecasts product sales. Currently, retailers rely on subjective forecasting methods with very little data to back them up and very little automation to execute plans. 
 
