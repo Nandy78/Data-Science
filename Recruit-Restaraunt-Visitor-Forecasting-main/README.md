@@ -1,4 +1,4 @@
-# Recruit Restaraunt Visitor Forecasting
+# Recruit Restaurant Visitor Forecasting
 
 In this competition, contestants are challenged to use reservation and visitation data to predict the total number of visitors to a restaurant for future dates. 
 This information will help restaurants be much more efficient and allow them to focus on creating an enjoyable dining experience for their customers.
