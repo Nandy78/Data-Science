@@ -1,0 +1,556 @@
+---
+title: "Machine Learning Tutorial"
+author: "Nandy Singh"
+date: "August 5, 2017"
+output: 
+  html_document:
+    theme: cosmo      
+---
+
+Hi guys, this is a machine learnig tutorial for R users. We have a wonderful tutorial for python users and not for R, so i thought i should make one. Actually, i don't know, how many of the top 1% use R, but i still can say that if there are any R users in top 1, they will be few in numbers. This is because of the complexity involved in this dataset and less resources for clustering in R, so it becomes quite challenging for R users. I hope, this kernel lets R users to start somewhere. This kernel running time is somewhere around 8 minutes, means we can get a predictin in 8 minutes. This is tested on 4gb RAM and i5-4 laptop. 
+
+**Note** - I may not evaluate some parts of this kernel to make sure that this kernel stays under kaggle kernel running limits. If you want, you can fork the notebook, download the code and try it in your local R environment.
+
+
+In this competition, Our target variable is **trip_duration**, and we have to predict it. Train dataset has some 11 columns and test dataset has some 9 columns, test dataset doesn't have trip_duration variable and dropoff_datatime variable.
+
+Train dand test dataset is from the same period.
+
+#Load the libraries 
+
+First, we load the necessary libraries to do our analysis
+```{r, message=FALSE, warning=FALSE, results="hide"}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(highcharter)
+library(plotly)
+library(leaflet)
+library(Metrics)
+library(edgebundleR)
+library(corrplot)
+library(tidyr)
+library(reshape2)
+library(DT)
+library(FNN)
+library(highcharter)
+library(lubridate)
+library(geosphere)
+library(broom)
+library(xgboost)
+
+```
+
+#Load datasets
+
+We load in all five datasets in this kernel. Two from the competition and other three from the added data resources by other kagglers.
+
+```{r, message=FALSE, warning=FALSE, results='hide'}
+
+train <- fread("train.csv")
+test <- fread("test.csv")
+osrm_t1 <- fread("fastest_routes_train_part_1.csv")
+osrm_t2 <- fread("fastest_routes_train_part_2.csv")
+osrm_test <- fread("fastest_routes_test.csv")
+
+
+train[, filter:= 0]
+test[, filter:= 1]
+
+dataset <- rbindlist(list(train, test), fill = T)
+
+```
+
+Every now and then, we will use the combined(train and test both) dataset to calculate some statistics or extract a new feature
+
+
+#Peak-a-boo
+summary lets us get the centre of distribution of any feature inside the dataset, it also tells us the number of NA's, if present, in a dataset.
+
+```{r}
+summary(dataset)
+```
+
+There are no NAs in either train or test dataset, so we are good to go
+
+
+#Evaluation Metric
+
+Our prediction is going to be evaluated with **RMSLE** metric, this is derived from the RMSE, and this just the RMSE with log transformed target and prediction. This means instead of using raw trip duration, we take log-trip_duration as target variable, and when submitting our prediction, we exponentiate the prediction to bring it into original scale.
+
+
+#2Ps
+
+##Preprocess
+Whenever you start with any competition, make sure you perform these 2Ps right at the start. First P means **Preprocess**. Preprocessing involves scaling, standardizing, transformations and stuffs like that. Here, we do log transformation of the target variable.
+
+```{r, results="hide"}
+
+train[, trip_duration:= log(trip_duration)]
+
+dataset <- rbindlist(list(train, test), fill = T)
+
+```
+
+
+##Preparation
+
+The second p means **Preparation**. This step involves imputing NA's, if any, turning numeric variables to factor variables and factor variables to numeric variables, as required by the ML algo. Here, we turn just the "store_and_fwd_flag" variable to numeric, from character.
+
+```{r, results = "hide"}
+
+dataset[, store_and_fwd_flag:= as.numeric(as.factor(store_and_fwd_flag))]
+
+```
+
+
+#Time related features
+
+We extract different periods of time from the datetime features, here, like hour of the day and wday of the week and such.
+
+```{r, message=FALSE, warning=FALSE, results = "hide"}
+dataset[,":="(pickup_datetime = ymd_hms(pickup_datetime),
+              dropoff_datetime = ymd_hms(dropoff_datetime),
+              pick_month = month(pickup_datetime),
+              pick_day = day(pickup_datetime),
+              pick_wday = wday(pickup_datetime),
+              pick_hour = hour(pickup_datetime))]
+
+train <- dataset[filter == 0, ]
+test <- dataset[filter == 1, ]
+
+```
+
+#clustering
+
+Clustering and predicting new clusters from the trained cluster model is very complicated in R. The default kmeans function trains on a dataset and predicts the clusters for that dataset only and doesn't have any prediction mechanism for new datasets. This problem of predicting form the existing kmeans cluster model is solved by the "kcca" package which has the prediction function for a kmeans object. But the kmeans algorithm runs for a long time, like forever, and while the algo is running it feels that it might take a year for training kmeans and then an another year for predicting on new dataset.
+
+We can get around these complexities by using defaut kmeans function to train the clustering algo on train dataset, and then predicting the clusters on new dataset by using "get.knnx" function from FNN package. I achieve this down below.
+
+##pickup Cluster
+
+This chunk should run for maximum 3 minutes.
+ 
+```{r, message=FALSE, warning=FALSE, eval = FALSE}
+
+#pickup co-ordinates
+i  <- cbind(pick_longitude = train$pickup_longitude, pick_latitude = train$pickup_latitude)
+
+set.seed(78)
+idx <- sample(nrow(i), 0.50 * nrow(i))
+
+
+#cluster <- kcca(k[idx, ], 70, family = kccaFamily("kmeans")) #Runs forever
+
+#computing distance
+set.seed(76)
+pick_cluster <- kmeans(i[idx,], 70, nstart = 15)
+
+#k_test <- cbind(pick_longitude = test[["pickup_longitude"]], pick_latitude = #test[["pickup_latitude"]], drop_longitude = test[["dropoff_longitude"]], #drop_latitude = test[["dropoff_latitude"]])
+
+
+#train pickup cluster
+train_pickup <- get.knnx(pick_cluster$centers, train[, list(pickup_longitude, pickup_latitude)], 1)$nn.index[,1]
+train[,pickup_cluster:= train_pickup]
+
+
+
+#test pickup cluster
+test_pickup <- get.knnx(pick_cluster$centers, test[, list(pickup_longitude, pickup_latitude)], 1)$nn.index[,1]
+test[,pickup_cluster:= test_pickup]
+
+```
+
+##dropoff Cluster
+
+This takes less time than it takes to get pickup cluster.
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE}
+
+#second set of coordinates
+j <- cbind(drop_longitude = train$dropoff_longitude, drop_latitude= train$dropoff_latitude)
+
+#clustering
+set.seed(76)
+drop_cluster <- kmeans(j[idx,], 70, nstart = 15)
+
+#train dropoff clusters
+train_dropoff <- get.knnx(drop_cluster$centers, train[, list(dropoff_longitude, dropoff_latitude)], 1)$nn.index[,1]
+train[, dropoff_cluster:= train_dropoff]
+
+
+#test dropoff clusters
+test_dropoff <- get.knnx(drop_cluster$centers, test[, list(dropoff_longitude, dropoff_latitude)], 1)$nn.index[,1]
+test[, dropoff_cluster:= test_dropoff]
+
+```
+
+
+#Distance
+
+We extract two distance features from the pickup and dropoff co-ordinates. First distance feature is a haversine distance calculated by pickup and dropoff co-ordinates  
+
+##haversine
+```{r, results= "hide"}
+
+#train co-ordinates
+i  <- cbind(pick_longitude = train$pickup_longitude, pick_latitude = train$pickup_latitude)
+j <- cbind(drop_longitude = train$dropoff_longitude, drop_latitude= train$dropoff_latitude)
+
+
+
+
+#computing haversine distance from co-ordinates
+train[, distance := distHaversine(i, j)]
+
+#log of distance
+train[, distance := log(distance+1)]
+
+
+
+
+#test coordinates
+i_test <- cbind(pick_longitude = test[["pickup_longitude"]], pick_latitude = test[["pickup_latitude"]])
+
+j_test <- cbind(drop_longitude = test[["dropoff_longitude"]], drop_latitude = test[["dropoff_latitude"]])
+
+
+
+
+
+#computing distance from co-ordinates
+test[, distance := distHaversine(i_test, j_test)]
+#log of distance
+test[, distance:= log(distance+1)]
+
+```
+
+Converting the distance to log helps the prediction accuracy a lot. Let me show it with a plot.
+
+##Log
+
+```{r}
+
+train %>% sample_frac(0.003)%>% plot_ly(x =~trip_duration, y = ~distance, alpha = 0.3) %>% add_markers(marker = list(line = list(color = "black", width = 1))) %>%
+  layout(
+    title = "<b>Relation of journey time and distance</b>",
+    xaxis = list(domain = c(0.1, 1), title = "<b><i>trip duration(log)</i></b>"),
+    yaxis = list(title = "<b><i>distance(log)</i></b>"),
+    updatemenus = list(
+      list(
+        y = 0.8,
+        buttons = list(
+          
+          list(method = "restyle",
+               args = list("type", "scatter"),
+               label = "Scatter"),
+          
+          list(method = "restyle",
+               args = list("type", "histogram2d"),
+               label = "2D Histogram")))
+))
+
+
+```
+
+We can see that we have quite a good linear relationship between log of distance and log of trip duration. Now see the same plot without log transformation of distance 
+
+##Raw
+
+```{r}
+
+
+train %>% sample_frac(0.003)%>% plot_ly(x =~trip_duration, y = ~exp(distance)-1, alpha = 0.3) %>% add_markers(marker = list(line = list(color = "black", width = 1))) %>%
+  layout(
+    title = "<b>Relation of journey time and distance</b>",
+    xaxis = list(domain = c(0.1, 1), title = "<b><i>trip duration(log)</i></b>"),
+    yaxis = list(title = "<b><i>distance</i></b>"),
+    updatemenus = list(
+      list(
+        y = 0.8,
+        buttons = list(
+          
+          list(method = "restyle",
+               args = list("type", "scatter"),
+               label = "Scatter"),
+          
+          list(method = "restyle",
+               args = list("type", "histogram2d"),
+               label = "2D Histogram")))
+))
+
+
+```
+
+
+##distance from central park
+
+Here, we calculate the distance of dropout points from that of central park, NY. We use the distCosine function, we use the coordinates(got from web) of central park as the first argument and then the dropoff coordinates to get the distance.
+
+```{r, results = "hide"}
+
+central_park <- c(73.9654,40.7829)
+train[,distance_to_central:= distCosine(j, central_park)]
+
+test[, distance_to_central:= distCosine(j_test, central_park)]
+
+```
+
+
+```{r}
+
+h <- train %>% sample_frac(0.003, replace = F)
+highchart() %>% 
+  hc_title(text = "Simple scatter chart") %>% 
+  hc_xAxis(category = h$trip_duration) %>% 
+  hc_add_series(data = h$distance_to_central, type ="scatter")
+
+```
+
+
+#Count
+
+Several pickup latitudes and longitudes deviate just a little bit from each other, implying that they are actually the same location but with few deviations. that is why, we did the clustering, earlier, so to get the actual counts of pickup points, we round the latitudes and longitudes to 3 digits.
+
+```{r, results = "hide", eval= FALSE }
+
+#Rounding train pickup and dropoff co-ordinates
+train[,":=" (pick_lat = round(pickup_latitude, 3),
+             pick_long = round(pickup_longitude,3),
+             drop_lat = round(dropoff_latitude, 3),
+             drop_long = round(dropoff_longitude,3))]
+
+#Rounding test pickup and dropoff co-ordinates
+test[,":="(pick_lat = round(pickup_latitude, 3),
+           pick_long = round(pickup_longitude,3),
+           drop_lat = round(dropoff_latitude, 3),
+           drop_long = round(dropoff_longitude,3))]
+
+#pickup and dropoff points
+train[,":="(pickup_point= paste(pick_long, pick_lat), 
+            dropoff_point = paste(drop_long, drop_lat))]
+test[, ":="(dropoff_point = paste(drop_long, drop_lat),
+            pickup_point = paste(pick_long, pick_lat))]
+
+#pickup and dropoff points counts
+train[, pick_count:= .N, by = pickup_point]
+train[, drop_count:= .N, by = dropoff_point]
+test[,  drop_count:= .N, by = dropoff_point]
+test[ , pick_count := .N, by = pickup_point]
+
+
+#pickup and dropoff cluster counts
+train[, ":="(pickup_cluster_count= .N), by = pickup_cluster]
+train[, dropoff_cluster_count:= .N, by = dropoff_cluster]
+test[, pickup_cluster_count:= .N, by =  pickup_cluster]
+test[, dropoff_cluster_count:= .N, by = dropoff_cluster]
+
+```
+
+
+#Average_features
+
+Here, we average the trip duration variable by month, day and hour and make it into a new feature, similarly we do that with pickup_point variable created before this feature.
+
+We can do this because train and test data is from the same period, if they were from different period, we wouldn't be able to apply the same method there. 
+
+```{r, message=FALSE, warning=FALSE, eval=F}
+
+#train[, month_unique := length(unique(pickup_point)), by = pick_month] 
+
+#train[, wday_unique := length(unique(pickup_point)), by = pick_wday] 
+
+#train[, day_unique := length(unique(pickup_point)), by = pick_day] 
+
+#train[, hour_unique := length(unique(pickup_point)), by = pick_hour]
+
+
+h <- train[, .(time_mean_trip = mean(trip_duration)), by = list(pick_month, pick_day, pick_hour)]
+
+train <- merge(train, h, by = c("pick_month", "pick_day", "pick_hour"), all.x = T)
+test <- merge(test, h, by = c("pick_month", "pick_day", "pick_hour"), all.x = T)
+
+l <- train[, .(pick_mean_trip = mean(trip_duration)), by = list(pickup_point)]
+
+train <- merge(train, l, by = "pickup_point", all.x = T)
+
+test <- merge(test, l, by = "pickup_point", all.x = T)
+
+```
+
+
+#speed
+
+The speed of a vehicle is linearly dependent on time taken by the trip. We find the speed by dividing the distance calculated by tri_duration and then multiply it by 1000 to get the speed in km/hr
+
+```{r, eval = FALSE}
+
+train[, speed := 1000 * distance/trip_duration]
+
+avg_speed <- train[,.(mean_speed = mean(speed, na.rm = T)), by = list(pick_long, pick_lat)]
+
+train <- merge(train, avg_speed , by =c("pick_long", "pick_lat"))
+
+test <- merge(test, avg_speed, by = c("pick_long", "pick_lat"))
+
+```
+
+
+#OSRM Features
+
+merge the osrm features to train and test dataset by "id". WE have train osrm dataset in two part, so we first bind them and then merge it with train dataset.
+We use only three numeric columns from that dataset, "total_distance", "total_travel_time" and "number_of_steps".
+
+```{r, eval = FALSE}
+
+test <- merge(test, osrm_test[, list(id, total_distance, total_travel_time, number_of_steps)], by = "id", all.x = T, sort = F)
+osrm_train <- bind_rows(osrm_t1, osrm_t2)
+train <- merge(train, osrm_train[, list(id, total_distance, total_travel_time, number_of_steps)], by = "id", all.x = T, sort = F)
+
+```
+
+
+#Imputing NA's
+
+We have some NA's in test dataset and very few in the newly appended features from osrm datasets in train. We impute them with NaN because the xgboost model, which we are going to use, handles NaN values separately.
+
+```{r, results = "hide", eval = F}
+
+colSums(is.na(test))
+test[which(is.na(time_mean_trip)), time_mean_trip:= NaN]
+test[which(is.na(pick_mean_trip)), pick_mean_trip:= NaN]
+
+train[is.na(total_distance), total_distance:= NaN]
+train[is.na(total_travel_time), total_travel_time:= NaN]
+train[, number_of_steps:= as.numeric(number_of_steps)]
+train[is.na(number_of_steps), number_of_steps:= NaN]
+
+```
+
+
+#Validation framework
+
+validation forms the important part of any competition, if your local validation is robust, then you can really catapult your prediction scores on Public LB without few submissions. The local validation becomes quite important when we have quite a big dataset and, it is not feasible to try out every new idea on the whole dataset and submit the prediction only to know that the idea doen't worth your time.
+
+**Cross-Validation** is always the first preferrence of every data scientist, but owing to the large size of this dataset, we drop the idea of cross validation. If you have good PC/laptop with good resources, you can try this but if you have machine configurations same as me, 4gb RAM and i5-4, then it is advisable to go with plain validation. Trust me, you don't want to waste your time just looking at the cross-validation to start, let alone it being finished.
+
+Just **Validation** means setting aside just a portion of your training data as validation dataset and train your data on the remaining train dataset and check your accuracy on the validation dataset before predicting on test dataset. This framework is not as solid as cross-validation but is, still, quite useful in these scenarios. We will use the plain validation framework in this kernel.  
+
+```{r, result = "hide"}
+
+#predictors to use in training 
+predictors <- setdiff(names(train), c("id", "store_and_fwd_flag", "pickup_point", "filter", "pick_long", "pick_lat", "drop_lat", "drop_long", "trip_duration", "pickup_datetime", "dropoff_datetime", "speed", "dropoff_point"))
+
+
+```
+
+
+```{r, eval= FALSE}
+
+
+#setting seed is necessary for reproducibilty
+set.seed(78)
+index <- sample(nrow(train), 0.80 * nrow(train)) #a portion of train dataset
+
+#sparse_train <- Matrix(as.matrix(train[index, predictors, with = F]), sparse = T)
+#sparse_valid <- Matrix(as.matrix(train[-index, predictors, with = F]), sparse = T)
+#sparse_test <- Matrix(as.matrix(test[, predictors, with = F]), sparse = T)
+
+dtrain <- xgb.DMatrix(as.matrix(train[index, predictors, with= F]), label = train$trip_duration[index])
+
+dvalid <- xgb.DMatrix(as.matrix(train[-index, predictors, with = F]), label = train$trip_duration[-index])
+
+dtest <- xgb.DMatrix(as.matrix(test[, predictors, with = F]))
+
+```
+
+If you use NaN as the value for mean imputation, then you can't turn your train and test datasets to sparse matrices, but if you've used some other number for NA imputation then you can use the sparse train and test matrices, it will speed up your training procedure, even mpre.   
+
+#Modeling
+
+Xgboost is the most efficient and most famous ML Algorithm on kaggle. This scales better for big datasets without any compromise on the effectives or prediction power. This is a must know alorithm for any newbie data scientist. We train the model for 150 rounds and set some hyperparameters to our liking. 
+
+```{r, eval = FALSE}
+
+params <- list(
+  booster = "gbtree", 
+  objective = "reg:linear",
+  eta=0.05, 
+  gamma=0,
+  max_depth= 3, 
+  subsample=0.8,
+  colsample_bytree=0.8,
+  eval_metric = "rmse"
+)
+
+#use this cv framework if you have satisfactory machine configurations
+#set.seed(679)
+
+#cvModel <- xgb.cv(params, dtrain, nrounds = 1000, early_stopping_rounds = 10, #maximize = T, nfold = 5, print_every_n = 10)
+
+#validation feramework
+set.seed(123)
+
+xgbModel <- xgb.train(params = params, nthreads = 4, data =dtrain, early_stopping_rounds = 10, watchlist = list(train = dtrain, test = dvalid), verbose = 1, maximize =F, nrounds =150, print_every_n = 5)
+
+```
+
+#Feature Importance
+
+If you want to see the feature importance, then use this code.
+
+```{r, eval = F}
+
+importance_matrix <- xgb.importance(feature_names = predictors, xgbModel)
+xgb.plot.importance(importance_matrix = importance_matrix, top_n = 50)
+
+```
+
+
+#Model Building
+
+We know build ourxgboost model with full data and with selected features.
+
+```{r, eval = F}
+
+#whole train dataset
+dtrain <- xgb.DMatrix(as.matrix(train[, predictors, with = F]), label = train$trip_duration)
+
+
+#setting seed and training
+set.seed(123)
+xgb <- xgb.train(params = params, nthreads = 4, data =dtrain, early_stopping_rounds = 10, watchlist = list(train = dtrain), verbose = 1, maximize =F, nrounds =150, print_every_n = 5)
+
+```
+
+
+#Prediction
+
+After training, we predict on the test dataset.
+
+```{r, eval = FALSE}
+
+prediction <- predict(xgb, dtest)
+
+submit <- data.frame(id = test$id, trip_duration = exp(prediction))
+
+write.csv(submit, "submit.csv", row.names = F)
+
+```
+
+As we did our prediction on log transformed trip duration, we exponentiate our prediction and reverse it back to the original scale.
+
+#Stacking, Ensembling and Hybrid Models.
+
+This is the most crucial and important step for a newbie to learn. I am exspecially, more, excited to teach you how to build hybrid models. Hybrid Models come very handy, expecially in these circumstances when the dataset is in 100s of Mbs.
+
+This is coming soon, please come back again.
+
+**Note** - Don't worry about low score, we are surely going to go below 0.4 without ensembling, then we do ensembling.
+
+Please upvote, if you find it useful.
+
+
+
+
+

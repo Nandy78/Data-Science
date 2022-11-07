@@ -1,0 +1,1435 @@
+---
+title: "Tutorial"
+author: "Nandy Singh"
+date: "July 28, 2017"
+output: 
+  html_document:
+    fig_height: 7
+    fig_width: 9
+    toc: yes
+    code_folding: hide
+---
+
+Hi guys, Welcome to this tutorial. In this tutorial, we will learn to how to present your idea or suggestions to your employer by analysing the data provided to you. Our Suggestions and/or comments will be data driven and, and we hope that our analysis helps our employer in some way.
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(highcharter)
+library(plotly)
+library(leaflet)
+library(visNetwork)
+library(maps)
+library(Metrics)
+library(d3heatmap)
+library(circlize)
+library(waffle)
+library(edgebundleR)
+library(corrplot)
+library(tidyr)
+library(reshape2)
+library(DT)
+library(highcharter)
+library(lubridate)
+library(chorddiag)
+library(viridisLite)
+library(geosphere)
+library(broom)
+library(networkD3)
+```
+
+
+# Problem/Questions
+
+The employes gives us this data and asks us to use our analytical skills to draw insights.
+
+**1. What can be done to increase the Ridership in company's taxis in NY?**
+
+**2. Should the company sack the license of vendor 1 because of poor                 performance(in comparison to other vendor's) as well as not completing          the target(either in  total ridership or overall journey)?**
+
+**3. What sort of people should the company target specifically, and  what new       schemes should the company start?**
+
+**4. What can be done to increase efficiency and productivity of present             vendors?**
+
+**5. Draw some other insights from this data that can accelerate the growth of       the company?**
+   
+**6. Predictions for for future trip durations for this year**
+
+We will find(though not in the same sequence) the answer of these questions systematically and will try to help the company to work around some new strategies, also, apart from answering the above aforemented questions i would dive deep into the data and make some visualizations that would help us in our machine learning process.
+
+**Note** - All(except some) the plots in this notebook are interactive, so i encourage you to zoom in and hover your cursor to gain detail information out of every plot
+
+# Data
+
+```{r, message=FALSE, warning=FALSE, results="hide"}
+
+#Datasets
+train <- fread("train.csv")
+test <- fread("test.csv")
+
+train[, filter:= 0]
+test[, filter:= 1]
+
+#combined dataset
+dataset <- bind_rows(train, test)
+
+```
+
+We have train dataset and test dataset. In this notebook, we would do our analysis primarily on the train dataset, though we would use combined dataset(train and test) sometimes. The test dataset doesn't have drop off time and trip duration(target variable) information, that means that when using these variables, we would have to only use train dataset.
+
+##Missing data
+
+Before starting with our analysis, we must find out the "actual amount of data". Before starting, it is really important to look for any missing values in the provided dataset and make sure that we take the effect of those rows into account while doing our analysis.
+
+```{r, message=FALSE, warning=FALSE}
+
+colSums(is.na(train))
+colSums(is.na(test))
+
+```
+
+No missing values in train and test dataset. We have complete dataset to  start our analysis.
+
+#Summary
+
+When starting with your analysis, **always**, i repeat **always** start with the summary and the structure of the data. This step allows us to know the center of the distribution(if continous) and/or levels(if categorical) of each variable.   
+
+```{r, message=TRUE, warning=FALSE}
+
+summary(dataset)
+
+```
+
+Take a look at the max and min of the pickup_latitude/longitude and dropoff_latitude/longitude. The drop off point doesn't always have to be inside New York city, for people may wish to go out of city on cab, but the pickup point should always be in the vicinity of New York city. The max and min of pickup_latitude/longitude suggests that we may have some mistakes in the dataset. We analyse this mistake later and we start our analysis with the data as we have.
+
+
+###Distribution of Rides{.tabset}
+
+We look at the distribution of rides from different periods and intervals, to start with, and get the idea of overall rise and fall in ridership numbers during differet periods.
+
+* Distribution of rides is uniform. 
+
+* No dramatic rise or fall of ridership numbers, except the midnight period.
+
+* Many assumptions can be made on these four.
+
+The distribution of rides in different periods is nearly always uniform. Though the monthly, weekly and daily distibutions are uniform, the hourly distribution shows stark drop in rides during midnight. Ofcourse, people want to sleep at night, but keeping in mind the nightlife of NY, this fall in rides should be closely investigated,this and the other three distribution tells whole lot of things about the company's strategy, nature of riders, and so on, about which i talk later in this notebook.
+
+
+```{r, message=FALSE, warning=FALSE, results="hide"}
+
+#extract day, hour, weekday and year from datetime
+train[,":="  (pickup_datetime = ymd_hms(pickup_datetime),
+              dropoff_datetime = ymd_hms(dropoff_datetime),
+              pick_year = year(pickup_datetime),
+              pick_month = month(pickup_datetime),
+              pick_day = day(pickup_datetime),
+              pick_wday = wday(pickup_datetime),
+              pick_hour = hour(pickup_datetime))]
+
+```
+
+
+####Monthly
+
+```{r}
+hchart(density(train$pick_month),type = "area", color = "#B71C1C", name = "monthly distributin of rides") %>% hc_xAxis(title = list(text = "Month")) %>% hc_add_theme(hc_theme_ffx())
+```
+
+####Weekly
+
+```{r, message=FALSE, warning=FALSE}
+
+hchart(density(train$pick_wday),type = "area", color = "#c1c1c9", name = "weekly distributin of rides") %>% hc_add_theme(hc_theme_ffx())
+
+```
+
+####Daily
+
+```{r}
+
+hchart(density(train$pick_day), type = "area", color = "#f08080", name = "daily distributin of rides") %>% hc_add_theme(hc_theme_ffx())
+
+```
+
+####Hourly
+
+```{r, message=FALSE, warning=FALSE}
+
+hchart(density(train$pick_hour), type = "area", color = "#c8cbcc",name = "hourly distributin of rides") %>% hc_add_theme(hc_theme_ffx())
+
+```
+
+
+
+Now, let us focus on answering the second question.
+
+###Ridership Numbers
+
+####Count
+```{r, message=FALSE, warning=FALSE}
+
+hchart(train$vendor_id, type = "column", colorByPoint = T) %>% hc_colors(c("red", "blue")) %>% hc_chart(type = "column",
+           options3d = list(enabled = TRUE, beta = 15, alpha = 15)) %>% hc_title(text = "Ridership numbers of each Vendor") %>% hc_subtitle(text = "The vendor 2 has 200000+ more trips as compared to vendor 1") %>% hc_add_theme(hc_theme_darkunica())
+
+```
+
+
+
+We look at the rides done by each vendor in percentage. Percentages are easy to interpret.
+
+####Percentage
+```{r, message=FALSE, warning=FALSE}
+train %>% group_by(vendor_id) %>% summarise(Count = n()) %>% mutate(percent = Count/sum(Count)) %>% plot_ly(values = ~percent, labels = ~vendor_id, type = "pie") %>% layout(showlegend = T, title = "<b>Ride percentage of both vendors</b>", xaxis = list(showgrid = F, zeroline = F, showline = F, showticklabels = F), yaxis = list(showgrid = F, zeroline = F, showline = F, showticklabels = F))
+
+```
+
+
+* vendor 1 has less rides than vendor 2
+* vendor 1 has 8% less rides than vendor 2.
+
+As can be seen from the plots, vendor 1 performs poorly, relative to vendor 2's figures, in terms of ridership. The gap of 8% between the two is HUGE, trust me. Company's total ridership target can be highly affected because of this difference between the two. The reason behind vendor 1's poor performance could be several. Less number of taxis, less number of employees, as compared to vendor 2. We will look at some of the parameters that might tell us, why vendor 1 lags behind vendor 2
+
+#Trip time
+
+As we know that trip duration is highly correlated with the fare, this information, alongwith the distance covered by the taxi, forms the important part of the company's strategy to generate money.
+
+###Overall trip duration
+
+```{r, message=FALSE, warning=FALSE}
+
+ggplotly(train %>%
+     ggplot(aes(trip_duration, fill = as.factor(vendor_id))) +
+     geom_density(position = "stack") +
+     scale_x_log10())
+
+```
+
+
+Once again we see vendor 1 is well behind vendor 2 in overall journey time. The density plot shows us the trip duration of 6 months as a whole, to get the idea of how a particular vendor performs at a given point of time. We will have to look at line plots.
+
+```{r, message=FALSE, warning=FALSE}
+
+x <- train
+x$date <- as.Date(x$pickup_datetime)
+f <- x %>% sample_frac(0.003, replace = F)
+plot_ly(f, x = ~date) %>%
+  add_lines(data = f %>% filter(vendor_id == 1), y = ~log(trip_duration), name = "vendor 1") %>%
+  add_lines(data = f %>% filter(vendor_id == 2), y = ~log(trip_duration), name = "vendor 2") %>%
+  layout(
+    title = "Distribution of trip duration",
+    xaxis = list(
+      rangeselector = list(
+        buttons = list(
+          list(
+            count = 3,
+            label = "3 mo",
+            step = "month",
+            stepmode = "backward"),
+          list(
+            count = 6,
+            label = "6 mo",
+            step = "month",
+            stepmode = "backward"),
+          list(
+            count = 1,
+            label = "YTD",
+            step = "year",
+            stepmode = "todate"),
+          list(step = "all"))),
+      
+      rangeslider = list(type = "date")),
+    
+    yaxis = list(title = "trip duration(log)"))
+
+
+
+```
+
+
+* Vendor 1 does give some competition to vendor 2 in trip duration at some         intervals.
+
+* vendor 2's distribution contains several huge peaks, huge, because we are        measuring the trip duration in log scale.
+
+
+
+###Mean Trip duration in different time segments{.tabset}
+
+Here we pay attention to mean trip duration in different time segments from both the vendors, individually
+
+
+
+* vendor 1 never overtakes vendor 2 in total trip duration at any time segment,   though
+* hourly distribution shows that vendor 1 comes close to overtaking vendor 2 at   6 a.m.
+* The company, for now,  is now just focusing on capturing the market, as is      always the case with any company. Giving this information in defence of vendor   1 isn't going to work.  
+
+Once again, these plots show that vendor 1 is quite behind vendor 2 in total journey time. The plots show us that, at midnight, vendor1 makes high trip durations than vendor 2. Also do remember, from an earlier exploration, this was the same period that showed dramatic decline in total(from vendor1 and vendor2 combined) rides. Now, let us investigate that.
+
+####Monthly
+
+```{r, message=FALSE, warning=FALSE}
+
+stats <- train %>% group_by(pick_month, vendor_id) %>% summarise(trip = mean(trip_duration))
+v1 <- stats %>% filter(vendor_id   == 1) %>% select(-vendor_id) %>% rename(vendor1 = trip)
+
+v2 <- stats %>% filter(vendor_id   == 2) %>% select(-vendor_id) %>% rename(vendor2 = trip)
+
+stats <- left_join(v1, v2, by = "pick_month") %>% as.data.frame()
+
+stats %>% plot_ly(x = ~pick_month) %>%
+  add_trace(y = ~vendor1, name = "vendor1", type = "scatter", mode ="markers+lines") %>%
+  add_trace(y = ~vendor2, name = "vendor2",type = "scatter", mode = "markers+lines", visible = F) %>%
+  layout(
+    title = "Mean monthly trip duration",
+    xaxis = list(domain = c(0.1, 1)),
+    yaxis = list(title = "trip duration"),
+    updatemenus = list(
+      list(
+        y = 0.8,
+        buttons = list(
+          
+          list(method = "restyle",
+               args = list("line.color", "blue"),
+               label = "Blue"),
+          
+          list(method = "restyle",
+               args = list("line.color", "red"),
+               label = "Red"))),
+      
+      list(
+        y = 0.7,
+        buttons = list(
+          list(method = "restyle",
+               args = list("visible", list(TRUE, FALSE)),
+               label = "vendor1"),
+          
+          list(method = "restyle",
+               args = list("visible", list(FALSE, TRUE)),
+               label = "vendor2")))
+    )
+)
+
+
+```
+
+
+####Weekly
+
+```{r, message=FALSE, warning=FALSE}
+
+stats <- train %>% group_by(pick_wday, vendor_id) %>% summarise(trip = mean(trip_duration))
+v1 <- stats %>% filter(vendor_id   == 1) %>% select(-vendor_id) %>% rename(vendor1 = trip)
+
+v2 <- stats %>% filter(vendor_id   == 2) %>% select(-vendor_id) %>% rename(vendor2 = trip)
+
+stats <- left_join(v1, v2, by = "pick_wday") %>% as.data.frame()
+
+stats %>% plot_ly(x = ~pick_wday) %>%
+  add_trace(y = ~vendor1, name = "vendor1", type = "scatter", mode ="markers+lines") %>%
+  add_trace(y = ~vendor2, name = "vendor2",type = "scatter", mode = "markers+lines", visible = F) %>%
+  layout(
+    title = "Mean weekly trip duration",
+    xaxis = list(domain = c(0.1, 1)),
+    yaxis = list(title = "trip duration"),
+    updatemenus = list(
+      list(
+        y = 0.8,
+        buttons = list(
+          
+          list(method = "restyle",
+               args = list("line.color", "blue"),
+               label = "Blue"),
+          
+          list(method = "restyle",
+               args = list("line.color", "red"),
+               label = "Red"))),
+      
+      list(
+        y = 0.7,
+        buttons = list(
+          list(method = "restyle",
+               args = list("visible", list(TRUE, FALSE)),
+               label = "vendor1"),
+          
+          list(method = "restyle",
+               args = list("visible", list(FALSE, TRUE)),
+               label = "vendor2")))
+    )
+)
+
+```
+
+####Daily
+
+```{r, message=FALSE, warning=FALSE}
+
+stats <- train %>% group_by(pick_day, vendor_id) %>% summarise(trip = mean(trip_duration))
+v1 <- stats %>% filter(vendor_id   == 1) %>% select(-vendor_id) %>% rename(vendor1 = trip)
+
+v2 <- stats %>% filter(vendor_id   == 2) %>% select(-vendor_id) %>% rename(vendor2 = trip)
+
+stats <- left_join(v1, v2, by = "pick_day") %>% as.data.frame()
+
+stats %>% plot_ly(x = ~pick_day) %>%
+  add_trace(y = ~vendor1, name = "vendor1", type = "scatter", mode ="markers+lines") %>%
+  add_trace(y = ~vendor2, name = "vendor2",type = "scatter", mode = "markers+lines", visible = F) %>%
+  layout(
+    title = "Mean daily trip duration",
+    xaxis = list(domain = c(0.1, 1)),
+    yaxis = list(title = "trip duration"),
+    updatemenus = list(
+      list(
+        y = 0.8,
+        buttons = list(
+          
+          list(method = "restyle",
+               args = list("line.color", "blue"),
+               label = "Blue"),
+          
+          list(method = "restyle",
+               args = list("line.color", "red"),
+               label = "Red"))),
+      
+      list(
+        y = 0.7,
+        buttons = list(
+          list(method = "restyle",
+               args = list("visible", list(TRUE, FALSE)),
+               label = "vendor1"),
+          
+          list(method = "restyle",
+               args = list("visible", list(FALSE, TRUE)),
+               label = "vendor2")))
+    )
+)
+
+```
+
+####Hourly
+
+```{r, message=FALSE, warning=FALSE}
+
+
+stats <- train %>% group_by(pick_hour, vendor_id) %>% summarise(trip = mean(trip_duration))
+
+v1 <- stats %>% filter(vendor_id   == 1) %>% select(-vendor_id) %>% rename(vendor1 = trip)
+
+v2 <- stats %>% filter(vendor_id   == 2) %>% select(-vendor_id) %>% rename(vendor2 = trip)
+
+stats <- left_join(v1, v2, by = "pick_hour") %>% as.data.frame()
+
+stats %>% plot_ly(x = ~pick_hour) %>%
+  add_trace(y = ~vendor1, name = "vendor1", type = "scatter", mode ="markers+lines") %>%
+  add_trace(y = ~vendor2, name = "vendor2",type = "scatter", mode = "markers+lines", visible = F) %>%
+  layout(
+    title = "Mean hourly trip duration",
+    xaxis = list(domain = c(0.1, 1)),
+    yaxis = list(title = "trip duration"),
+    updatemenus = list(
+      list(
+        y = 0.8,
+        buttons = list(
+          
+          list(method = "restyle",
+               args = list("line.color", "blue"),
+               label = "Blue"),
+          
+          list(method = "restyle",
+               args = list("line.color", "red"),
+               label = "Red"))),
+      
+      list(
+        y = 0.7,
+        buttons = list(
+          list(method = "restyle",
+               args = list("visible", list(TRUE, FALSE)),
+               label = "vendor1"),
+          
+          list(method = "restyle",
+               args = list("visible", list(FALSE, TRUE)),
+               label = "vendor2")))
+    )
+)
+
+
+```
+
+
+
+
+#The quite period
+
+We know, from an earlier visualisations, the number of rides drop dramatically around 4 a.m to 7 a.m at midnight. We do the exploration of this period, try to understand the data that comes under this period.
+
+```{r, message=FALSE, warning=FALSE}
+
+sub <- train %>% filter(pick_hour %in% c(4, 5, 6))
+
+sub %>% group_by(vendor_id) %>% summarise(count = n()) %>% mutate(percent = count/sum(count)) %>% plot_ly(values = ~percent, labels = ~vendor_id, type="pie") %>% layout(showlegend = T, title = "<b>Ride percentage of both vendors</b>", xaxis = list(showgrid = F, zeroline = F, showline = F, showticklabels = F), yaxis = list(showgrid = F, zeroline = F, showline = F, showticklabels = F))
+
+```
+
+* vendor 1's taxi ridership increases at midnight as compared to vendor 2, and    also brings the percentage sharing to 50:50 than the previous overall           ridership sharing percentage of 46:54.
+
+Wow, look at the ride percentage of vendor 1 at midnight. vendor 1 does quite a good job in bringing the ride share to 50:50. This is quite a good achievement for vendor 1.
+
+###Suggestion
+
+1. Company shouldn't withdraw the license of vendor1, if possible.
+2. withdrawing the license may not only hit the company's short-term ridership     numbers but also the company may loose many of the midnight rides where         vendor1's future prospects look promising
+3. Still, company should ask for reasons of vendor1's incapability to meet the     target given to him and then take the necessary step to resolve those issues.
+
+
+Now, let us ask ourselves a question. Why and were does actually vendor 1 lag behind vendor 2? because of which he is nowhere close to vendor 2 either in ridership numbers or in total trip durations.
+
+This, i try to answer at the end of this notebook, so stay till the end.
+
+
+#Feature(pickup and dropoff point)
+
+Now, we create two new features to look for destinations that attract most and least taxi ridership, these would be pickup point and dropoff point. These features aren't derived by some fancy feature engineering techniques, and are simply just a combination of latitude and longitude.
+
+```{r, message=FALSE, warning=FALSE, results="hide"}
+
+#dropoff and pickup point
+train[, pickup_point := paste(pickup_latitude, pickup_longitude)]
+train[, dropoff_point:= paste(dropoff_latitude, dropoff_longitude)]
+
+```
+
+
+###Bottom 50 destinations{.tabset}
+
+
+* Pickup points and dropoff points look similar, though pickup points look        little   bit clustered.
+* Some pickups and dropoffs appear as mistakes and are located inside the ocean 
+* Dropoff points and pickup points are far away from NY.
+
+
+**What?** pickup and dropoff point inside the ocean? Well, i don't know about you but i am assuming that driver on his way had a sudden mood swing and just drove into the ocean for a swim. 
+
+Haha, now let's not laugh on this moronic joke and focus on the other pickups as the pickup and dropoff points inside the ocean are surely mistakes.
+
+The Dropoff points, except the ones inside the ocean seems genuine, remember that the dropoffs can be outside NY but not the pickups, but we do have some pickup points near to the dropoff points which are outside the NY city.
+
+**What does this suggest?**
+This suggests that the taxi on his way back to the NY city might have got some passengers and they might be heading to NY city. The clusters in the pickups also tell us that the driver may have got 5 to 6 passengers who headed to the ney york city or they may be headed to area around the dropoff point. We will investigate this further, surely.
+
+
+####Pickup
+```{r, message=FALSE, warning=FALSE}
+
+g <- train %>% group_by(pickup_latitude, pickup_longitude) %>% summarise(count = n())
+
+g <- g[with(g, order(count)),]
+
+col_pickup <- colorNumeric(topo.colors(200), g$count[1:50])
+leaflet(g[1:50,]) %>% addTiles() %>% addMarkers(~pickup_longitude, ~pickup_latitude, popup = ~paste(pickup_latitude, pickup_longitude)) %>% addLegend("bottomright", colors = "blue", labels = "pickups", title = "50 least popular pickup points", opacity = 0.3)
+
+```
+
+
+####Dropoff
+```{r, message=FALSE, warning=FALSE}
+
+g <- train %>% group_by(dropoff_latitude, dropoff_longitude) %>% summarise(count = n())
+
+g <- g[with(g, order(count)),]
+
+col_dropoff <- colorNumeric(topo.colors(200), g$count[1:50])
+leaflet(g[1:50,]) %>% addTiles() %>% addMarkers(~dropoff_longitude, ~dropoff_latitude, popup = ~paste(dropoff_latitude, dropoff_longitude, sep = ",")) %>% addLegend("bottomright",colors = "blue", labels = "dropoffs", title = "50 least popular dropoff points", opacity = 0.3)
+
+
+```
+
+
+
+###Top 50 destinations{.tabset}
+
+* Pickup and dropoff points appear as clusters, a good sign for the               company.
+
+* We see three main clusters of pickup points, 1st cluster is situated at the La   guardia airport, and can be seen without zooming, 2nd cluster is at JF kennedy   airport, and can be seen after going down the La guardia airport and zooming a   little bit, and 3rd cluster appears at the New York Penn Station, where the     Madison Square Garden is situated, and can be seen by little bit of zooming.
+
+* We see three main dropoff points and a possible forth main drop off points.
+  First main dropoff point is the La guardia airport. Second we see at the New    York Penn Station and slightly away from it at the Manhattan Community Board.   Third we see at the 12th avenue. 
+
+* The second and third dropoff points are very close to city bike station. This   is understandable because NY has the highest car-free households, that stands   at 56% and New Yorkers prefer highly prefer to use public transport or like to   ride a bicyclye to work.
+
+* fourth possible main dropoff point can be the NewYork's Presbyterian Hospital   and shows only one ride in this map, but if more points are plotted, we may     surely see a cluster of dropoffs forming around this destination. 
+
+
+These two plots give a lot of information to us and make us capable of answering the 1st and the 3rd question. 
+
+You can infer by the above plots that no coordinate has counts above 35, this is really surprising because the pickup points we are talking about includes two most important and highly lucrative(in terms of ridership as well as money) pickup points for any ride hailing company, the airports. Though we know that several of the coordinates point to the same destination, with slight deviations in latitude or longitude, and even if we consider the total pickups at both the Airport at around 1000 each, during this 6 months, the ridership at the airports are still astonishingly low for the company in a city like New York, this,  after we know that the train dataset is from Jan of 2016 and includes New Year as well as christmas season, till the June of 2016. Company needs to look in to this matter
+
+
+One more thing to note is that the actual number of pickup or dropoff destinations can be narrowed to some number because as you can see from the above plot, the coordinates point to only one destination but with slight deviations in latitudes or longitudes. So this information also tells us that it will be good to run clustering algos on pickup and dropoff coordinates. Let us try to visualize this and see what we get.
+
+
+
+####Pickup
+```{r, message=FALSE, warning=FALSE}
+
+g <- train %>% group_by(pickup_latitude, pickup_longitude) %>% summarise(count = n()) %>% arrange(desc(count))
+
+col_pickup <- colorNumeric(topo.colors(100), g$count[1:50])
+leaflet(g[1:50,]) %>% addTiles() %>% addCircles(~pickup_longitude, ~pickup_latitude,popup = ~paste(pickup_longitude, pickup_latitude), color= ~col_pickup(count)) %>% addLegend("bottomright",pal = col_pickup, values= g$count[1:50], title = "50 most popular pickup points", opacity = 0.3)
+
+```
+
+####Dropoff
+```{r, message=FALSE, warning=FALSE}
+
+g <- train %>% group_by(dropoff_latitude, dropoff_longitude) %>% summarise(count = n()) %>% arrange(desc(count))
+
+col_dropoff <- colorNumeric(topo.colors(100), g$count[1:50])
+leaflet(g[1:50,]) %>% addTiles() %>% addCircles(~dropoff_longitude, ~dropoff_latitude,popup = ~paste(dropoff_longitude, dropoff_latitude), color= ~col_dropoff(count)) %>% addLegend("bottomright",pal = col_dropoff, values= g$count[1:50], title = "50 most popular pickup points", opacity = 0.3)
+
+```
+
+
+
+#Possible duplicates
+
+Here, we look at the coordinates that points to the same direction and just deviate by few angles, either latitude or longitude. 
+
+
+```{r}
+
+fixtable <- function(...) {
+  tab <- table(...)
+  if (substr(colnames(tab)[1],1,1) == "_" &
+      substr(rownames(tab)[1],1,1) == "_") {
+    tab2 <- tab
+    colnames(tab2) <- sapply(strsplit(colnames(tab2), split=" "), `[`, 1)
+    rownames(tab2) <- sapply(strsplit(rownames(tab2), split=" "), `[`, 1)
+    tab2[1,1] <- 0
+    # mandat w klubie
+    for (par in names(which(tab2[1,] > 0))) {
+      delta = min(tab2[par, 1], tab2[1, par])
+      tab2[par, par] = tab2[par, par] + delta
+      tab2[1, par] = tab2[1, par] - delta
+      tab2[par, 1] = tab2[par, 1] - delta
+    }
+    # przechodzi przez niezalezy
+    for (par in names(which(tab2[1,] > 0))) {
+      tab2["niez.", par] = tab2["niez.", par] + tab2[1, par]
+      tab2[1, par] = 0
+    }
+    for (par in names(which(tab2[,1] > 0))) {
+      tab2[par, "niez."] = tab2[par, "niez."] + tab2[par, 1]
+      tab2[par, 1] = 0
+    }
+    
+    tab[] <- tab2[] 
+  }
+  tab
+}
+
+h <- train %>% group_by(pickup_latitude, pickup_longitude) %>% summarise(count = n()) %>% arrange(desc(count)) %>% head(50)
+
+flow2 <- data.frame(fixtable(z = paste0(h$pickup_latitude), do = paste0(h$pickup_longitude)))
+
+
+flow2 <- flow2[flow2[,3] > 0,]
+
+nodes2 <- data.frame(name=unique(c(levels(factor(flow2[,1])), levels(factor(flow2[,2])))))
+nam2 <- seq_along(nodes2[,1])-1
+names(nam2) <- nodes2[,1]
+
+links2 <- data.frame(source = nam2[as.character(flow2[,1])],
+                                        target = nam2[as.character(flow2[,2])],
+                                        value = flow2[,3])
+
+sankeyNetwork(Links = links2, Nodes = nodes2,
+                            Source = "source", Target = "target",
+                            Value = "value", NodeID = "name",
+                            fontFamily = "Arial", fontSize = 12, nodeWidth = 40,
+                            colourScale = "d3.scale.category20()")
+
+```
+
+
+Those latitudes and longitudes having more than one connection either way may be duplicates and point to the same nearby destination, so be careful when feeding raw latitudes and longitudes to your machine learning algo, preprocess accordingly.
+
+
+**Note** - The high density cluster of the pickups or dropoff are good for the company, because it lets the company to focus and concentrate their whole effort at a specific point, instead of dividing their concentration on several low density clusters of pickups and/or dropoffs, if they were far away from each other.
+
+###Suggestions
+
+1. Company must concentrate on increasing the ridership around the two airport     belt.
+2. Company can start new schemes for the passengers going to or coming from the    airport.
+3. Company can also award a new license to a new vendor which would cater to       these schemes or to the passengers coming or leaving this belt
+
+
+
+Now, we investigate the less frequent and low trip duration pickups and dropups.
+This will give us the idea of the pickups outside of the NY city.
+
+```{r, message=FALSE, warning=FALSE}
+
+setorder(train, trip_duration) 
+g <- train[1:20,]
+g$numb <- 1:20
+leaflet(g) %>% addTiles() %>% addCircles(~pickup_longitude, ~pickup_latitude, color = "red", popup =~paste("pickup:", as.character(pickup_datetime), " numb: ", numb, "trip: ", trip_duration), radius = 30)%>% addCircles(~dropoff_longitude, ~dropoff_latitude, color = "blue", popup =~paste("dropoff:", as.character(dropoff_datetime), " numb: ", numb), radius = 30) %>% addLegend("bottomright",colors = c("red", "blue"), label= c("<b>pickup</b>", "<b>dropoff</b>"), title = "Distance between pickup and dropoff points of outliers", opacity = 0.3)
+
+```
+
+
+Can you spot the pickups? well, you can't, because the pickups have been hidden by dropoffs. The pickup coordinates and dropoff coordinates are same. What this tells us is that these entries could be mistakes on the part of the driver. These entries could have been mistakenly entered by the driver. 
+
+###Feature Idea
+This could potentially cause another dimension of duplicacy, though i feel it wouldn't be much of an issue. But after seeing this, the first potential feature that came into my mind was **string distance**, this feature can help us in capturig this effect of duplicacy.
+
+#Network
+
+```{r, message=FALSE, warning=FALSE, results="hide"}
+setorder(train, pickup_datetime)
+
+networkDF <- train[, .(pickup = first(pickup_point), low_trip = min(trip_duration), high_trip = max(trip_duration), min_passenger = min(passenger_count), max_passenger = max(passenger_count), early_year = min(pick_month), late_year = max(pick_month), early_month= min(pick_day), late_month = max(pick_day), early_wday = min(pick_wday), late_wday = max(pick_day), vendor = first(vendor_id)), by = dropoff_point] 
+
+networkDF[,":="(drop_prev = lag(dropoff_point), drop_now = dropoff_point, vendor_now = vendor, vendor_prev = lag(vendor))]
+ 
+```
+
+
+
+```{r, message=FALSE, warning=FALSE}
+
+#data frame for network
+
+
+networkDF <- networkDF[, list(pickup, drop_prev, drop_now, low_trip, high_trip, min_passenger, max_passenger, early_year, late_year, early_month, late_month, early_wday, late_wday, vendor_now, vendor_prev)]
+
+#network plotting function
+visNetworkPerPickup <- function(df,seconds,passenger, mon, vendor, day){
+    edges <- df %>% 
+    filter(low_trip <= seconds) %>%
+    filter(min_passenger <= passenger) %>%
+    filter(early_month <= mon) %>% 
+    filter(early_wday <= day) %>%
+    filter(vendor_now == vendor) %>%
+    select(pickup, drop_now) %>%
+    rename(from = pickup) %>%
+    rename(to = drop_now) %>%
+    sample_n(30, replace = F) %>%
+    ungroup() %>%
+    mutate(arrows = "from")
+  
+  
+  edgesMelt <- edges %>%
+    mutate(shape = "") %>%
+    melt(id = "shape", measure= c("to", "from"), value.name = "id")
+  
+  
+  nodesPickup <- edgesMelt %>% 
+    filter(variable == "from") %>%
+    mutate(group = "pickup")
+  
+  
+  nodesDrop <- edgesMelt %>%
+    filter(variable == "to") %>%
+    mutate(group = "drop")
+  
+  
+  nodes <- rbind(nodesPickup, nodesDrop) %>% select(variable, id, group) %>% unique()
+  
+   visNetwork(nodes, edges, main = list(text = paste0("Pickup and drop off points "),
+                                       style = "font-family:Comic Sans MS;color:#ff0000;font-size:15px;text-align:center;")) %>%
+    visGroups( groupname = "pickup", color = "lightgreen") %>%
+    visGroups( groupname = "drop", color = "lightblue") %>%
+    visOptions(highlightNearest = list(enabled = TRUE, degree =1), nodesIdSelection = T) %>%
+    visInteraction(dragNodes = T, dragView = T, zoomView = T)  %>%
+    visGroups(groupname = "pickup", shape = "icon", icon = list(code = "f21d", size =100)) %>%
+    visGroups(groupname = "drop", shape = "icon", icon = list(code = "f1ba", color = "green")) %>%
+    addFontAwesome() %>%
+    visInteraction(navigationButtons = TRUE) 
+}
+
+
+```
+
+
+Let us now visualize the pick up and drop off coordinates of both vendor 1 and vendror 2 through network plot.
+
+The network plots allow us to narrow down the number of actual interactive points by filtering it by the given different threshold for different variables. This allows us to easily focus and understand only a particualar aspect of the data on a given time. 
+
+we only look at some parts of the train dataset, if you want to analyse other parts you are free to download the code and try it in your local environment.
+
+###Trip<=200, passenger_count<=2, month<=4, day<=2, vendor_id==2
+
+```{r, message=FALSE, warning=FALSE}
+
+set.seed(1100)
+visNetworkPerPickup(networkDF, 200, 2, 4, 2, 2)
+
+```
+
+###Trip<=400, passenger_count<=2, month<=4, day<=2, vendor_id==1 
+
+```{r, message=FALSE, warning=FALSE, results = "hide"}
+
+set.seed(1300)
+visNetworkPerPickup(networkDF, 200, 2, 4, 2, 1)
+
+```
+
+
+The pickups and dropoffs that you see on the network plots have been filtered and plotted on the network. These plots tell us that which points fall into a category, when arranged and filtered by different threshold combinations of different variables.
+
+#Uniqueness
+
+Uniqueness, in here, means, on a given day or in a time interval, how many times each vendor picks up the passenger from a new destination? a destination which he didn't visit before during that time interval.
+
+**Why is this important?**
+
+This is really important because this allows us to get the idea about what type of people the vendors or, if i may say, the company target. This will allow us to answer the 4th question.
+
+* No visual diversity, not even small, in the nature of passengers attracted      between vendor 1 and vendor 2
+
+* Vendor 2 attracts perfectly similar kind of people as vendor 1.
+
+* not only the passenger type of vendor 1 and vendor 2 is perfectly correlated,   but also they don't have any diversity in the rides they serve daily  that's    why we can sense what type of passengers they serve daily, together, with       the effect of uniqueness shown in the plots.
+
+* The feature can really help us in the machine learning part of this             competition.
+
+
+
+###Monthly{.tabset}
+
+####Vendor 1
+```{r, message=FALSE, warning=FALSE}
+
+h <- train[, .(trip = mean(trip_duration), uniqueness = length(unique(pickup_point))), by = list(pick_month, vendor_id)] 
+h1 <- h %>% filter(vendor_id == 1)
+h2 <- h %>% filter(vendor_id == 2)
+hchart(h1, "treemap", hcaes(x = as.character(pick_month), value = uniqueness, color = uniqueness)) %>% hc_title(text = "Monthly mean trip Duration of both vendors") %>% hc_subtitle(text = "Vendor 2 is well ahead of Vendor 1 again")
+
+```
+
+####Vendor 2
+```{r, message=FALSE, warning=FALSE}
+
+hchart(h2, "treemap", hcaes(x = as.character(pick_month), value = trip, color = uniqueness)) %>% hc_title(text = "Monthly mean trip Duration of both vendors") %>% hc_subtitle(text = "Vendor 2 is well ahead of Vendor 1 again")
+
+```
+
+
+###Weekly{.tabset}
+
+####Vendor 1
+```{r, message=FALSE, warning=FALSE}
+
+h <- train[, .(trip = mean(trip_duration), uniqueness = length(unique(pickup_point))), by = list(pick_wday, vendor_id)] 
+h1 <- h %>% filter(vendor_id == 1)
+h2 <- h %>% filter(vendor_id == 2)
+hchart(h1, "treemap", hcaes(x = as.character(pick_wday), value = trip, color = uniqueness)) %>% hc_title(text = "Weekly mean trip Duration of both vendors") %>% hc_subtitle(text = "Vendor 2 is well ahead of Vendor 1 again")
+
+
+```
+
+####vendor 2
+```{r, message=FALSE, warning=FALSE}
+
+hchart(h2, "treemap", hcaes(x = as.character(pick_wday), value = trip, color = uniqueness)) %>% hc_title(text = "Weekly mean trip Duration of both vendors") %>% hc_subtitle(text = "Vendor 2 is well ahead of Vendor 1 again")
+
+```
+
+###Daily{.tabset}
+
+####vendor 1
+
+```{r, message=FALSE, warning=FALSE}
+
+h <- train[, .(trip = mean(trip_duration), uniqueness = length(unique(pickup_point))), by = list(pick_day, vendor_id)] 
+h1 <- h %>% filter(vendor_id == 1)
+h2 <- h %>% filter(vendor_id == 2)
+hchart(h1, "treemap", hcaes(x = as.character(pick_day), value = trip, color = uniqueness)) %>% hc_title(text = "Daily mean trip Duration of both vendors with uniqueness") %>% hc_subtitle(text = "Vendor 2 is well ahead of Vendor 1 again")
+
+```
+
+####vendor 2
+
+```{r, message=FALSE, warning=FALSE}
+
+hchart(h2, "treemap", hcaes(x = as.character(pick_day), value = trip, color = uniqueness)) %>% hc_title(text = "Daily mean trip Duration of both vendors with uniqueness") %>% hc_subtitle(text = "Vendor 2 is well ahead of Vendor 1 again")
+
+```
+
+###Hourly{.tabset}
+
+####Vendor 1
+```{r, message=FALSE, warning=FALSE}
+
+h <- train[, .(trip = mean(trip_duration), uniqueness = length(unique(pickup_point))), by = list(pick_hour, vendor_id)]
+h1 <- h %>% filter(vendor_id == 1)
+h2 <- h %>% filter(vendor_id == 2)
+hchart(h1, "treemap", hcaes(x = as.character(pick_hour), value = trip, color = uniqueness)) %>% hc_title(text = "Hourly mean trip Duration of both vendors with uniqueness") %>% hc_subtitle(text = "Vendor 2 is well ahead of Vendor 1 again")
+
+```
+
+
+####Vendor 2
+```{r, message=FALSE, warning=FALSE}
+
+hchart(h2, "treemap", hcaes(x = as.character(pick_hour), value = trip, color = uniqueness)) %>% hc_title(text = "Hourly mean trip Duration of both vendors with uniqueness") %>% hc_subtitle(text = "Vendor 2 is well ahead of Vendor 1 again")
+
+```
+
+
+
+#Passengers
+
+###counts of passengers
+```{r, message=FALSE, warning=FALSE}
+
+k <- dataset[ , .(count = .N), by = passenger_count]
+col <- viridis(11)
+col <- substr(col, 0, 7)
+
+col <- c("limegreen", "black", "red", "green", "blue", "brown", "yellow","violet", "magenta", "purple", "pink")
+
+parts <- c(`0` = 60, `1` = 1476987, `2` = 300345, `3` = 85582, `4` = 40421, `5`= 111499, `6` = 68854, `7` = 3, `8` = 1, `9` = 1)
+waffle(parts/10000, rows = 9, colors = col, legend_pos = "bottom", title = "Frequency of number of passengers", xlab= "1 square = 10000", pad =  2)
+
+```
+
+* As exected, single passenger rides dominate the total overall rides.
+
+* Then comes two-passenger rides, and then surprisingly comes five-passenger      rides.
+
+The 1-passenger and 2-passenger rides followed directly by 5-passenger rides in terms of highest ridership numbers, is a sort of mystery to me. We'll explore this information further.
+
+###Trip duration trend.
+
+```{r, message=FALSE, warning=FALSE, results="hide"}
+h <- train 
+h[, above3 := ifelse(passenger_count >=3, "yes", "no")]
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+
+
+h[, date := as.Date(pickup_datetime)]
+h <- h[, .(mean_trip = mean(trip_duration)), by = list(above3, date)]
+
+no <- h %>% filter(above3 == "no") %>% select(-above3) %>% rename(no = mean_trip)
+yes <- h %>% filter(above3 == "yes")  %>% select(-above3) %>% rename(yes = mean_trip)
+
+all <- merge(no, yes, by = "date", all.x = T, sort = F)
+
+highchart() %>% hc_xAxis(categories = all$date) %>% hc_add_series(data = all$no, name = "below 3") %>% hc_add_series(data = all$yes, name = "3 or above") %>% hc_yAxis(title = list(text = "Trip duration(seconds)"), allowDecimals = FALSE)  %>%hc_title(text = "Mean trip durations") %>% hc_subtitle(text = "Some outliers in are visible in the plot") %>% hc_colors(c("#F0A1EA", "#76D7C4")) %>% hc_add_theme(hc_theme_chalk())
+
+```
+
+
+* Two huge peaks on 5th jan and 13th feb seem as outlier.
+
+* These two dates could create problems in our machine learning process.
+
+* Rise of 5th Jan may suggest the effect of New Year season and 13th feb may      indicate the effect of valentine's day
+
+* As can be seen, a trip having more than 3 passengers has average trip duration   higher than that of a trip having single passenger.
+
+* Ofcourse, this doesn't tell us whether this fetches more money to the company   or not, but this, still, gives us a hint of how much money a vendor would       generate in comparison to a single passenger ride.
+
+We filtered our dataset according to whether the passenger count is 3 or above, and 2 or less. The sudden jump in trip duration on feb 13 is due to the increase in the two-passenger rides(means a journey having atleast two passengers), this, i confirmed by filtering the train dataset by passenger_count of atleast 2 or above and the filtered datset contained all the data with passenger_count variable having minimum 2, and then i plotted the mean trip duration which didn't show the 13th feb peak but the 5th jan peak still remained. I am quite sure, the majority of those 13th feb two-passenger rides were dominated by lovey-dovey couples.
+
+##Suggestions
+
+* Try to suggest the vendors to diversify their daily passenger ride serving,     specifically on the dates that have less  uniqueness as shown above.
+
+* Also try to give special concessions or start new schemes for New Year and and   Valintine's day, if the schemes don't exist.
+
+* Also try to encourage the vendors to serve more than 3 passengers on a single   ride, this may help in diversity of rides as well as money generation.  
+
+
+#Distance
+
+We have the coordinates and the duration time of the trip, we find the distance between two doordinate set. We achieve this task by using the **distHaversine** function from **stringdist** package. It takes a set of x and y as the first argument and then another set of x and y as other argument.
+
+```{r, message=FALSE, warning=FALSE, results = "hide"}
+
+#first set of coordinates
+i <- cbind(longitude = train$pickup_longitude, latitude = train$pickup_latitude)
+#second set of coordinates
+j <- cbind(longitude = train$dropoff_longitude, latitude= train$dropoff_latitude)
+#computing distance
+train[, distance := distHaversine(i, j)]
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+
+train %>% sample_frac(0.003)%>% plot_ly(x = ~log(trip_duration), y = ~log(distance), alpha = 0.3) %>% add_markers(marker = list(line = list(color = "black", width = 1))) %>%
+  layout(
+    title = "<b>Relation of journey time and distance</b>",
+    xaxis = list(domain = c(0.1, 1), title = "<b><i>trip duration(log)</i></b>"),
+    yaxis = list(title = "<b><i>distance(log)</i></b>"),
+    updatemenus = list(
+      list(
+        y = 0.8,
+        buttons = list(
+          
+          list(method = "restyle",
+               args = list("type", "scatter"),
+               label = "Scatter"),
+          
+          list(method = "restyle",
+               args = list("type", "histogram2d"),
+               label = "2D Histogram")))
+))
+
+
+
+```
+
+* Visible linear relation with trip duration 
+* The plot clearly outlines the outliers.
+* Log transformation is key for interpretability of the plot.
+
+Wow, this is quite an interesting plot. This plot tells us that log transformation of trip duration and distance has linear relation between them, and this would really help us in pur machine learning part.
+
+Both x and y axis are in log scale, you can try to plot the points in original scale, you would find that the plot isn't interpretable. This, also, tells us that we have quite a huge skewness in both the variables. Log transformation will surely increase the predictability of our machine learning process 
+
+##Fitting loess
+```{r, message=FALSE, warning=FALSE}
+set.seed(78)
+
+h <- train %>% sample_frac(0.002, replace =F)
+h$trip_duration <- log(h$trip_duration)
+h$distance <- log(h$distance+1)
+
+m <- loess(trip_duration ~ distance, data = h)
+
+h %>% plot_ly( x = ~distance, color = I("black")) %>%
+  add_markers(y = ~trip_duration, text = paste("rowno: ", rownames(h)), showlegend = FALSE) %>%
+  add_lines(y = ~fitted(loess(trip_duration~ distance)),
+            line = list(color = '#07A4B5'),
+            name = "Loess Smoother", showlegend = TRUE) %>%
+  add_ribbons(data = augment(m),
+              ymin = ~.fitted - 1.96 * .se.fit,
+              ymax = ~.fitted + 1.96 * .se.fit,
+              line = list(color = 'rgba(7, 164, 181, 0.05)'),
+              fillcolor = 'rgba(7, 164, 181, 0.2)',
+              name = "Standard Error") %>%
+  layout(xaxis = list(title = '<i><b>distance</b></i>'),
+         yaxis = list(title = '<i><b>trip duration<b></i>'),
+         legend = list(x = 0.80, y = 0.90))
+
+```
+
+
+We can see that the loess smoother is passing right through the middle of the distribution of points, though we see quite a small standard error. 
+
+##Distance from central park
+
+The distance between the dropoff point and central park NY will surely help us to make a distiction between the dropoff that are inside NY and  those outside.
+Because as we think that the dropoffs, outside of NY, may have larger trip durations as compared to those dropoff that are inside NY.
+
+```{r, results = "hide"}
+
+central_park <- c(73.9654,40.7829)
+
+train[,distance_to_central:= distCosine(j, central_park)]
+
+test[, distance_to_central:= distCosine(j_test, central_park)]
+
+```
+
+```{r}
+
+h <- train %>% sample_frac(0.003, replace = F)
+highchart() %>% 
+  hc_title(text = "Simple scatter chart") %>% 
+  hc_xAxis(category = h$trip_duration) %>% 
+  hc_add_series(data = h$distance_to_central, type ="scatter")
+
+
+```
+
+
+The information is very good, but, still, satisfactory and i hope this should, really, give, atleast, small decrease in your rmsle metric.
+
+##String Distance
+
+Earlier, i told you about the string distance feature, now, we try to apply the concept. We will make a historical dataset and present dataset.The present dataset will have the datarows accumulated by filtering the train dataset by the time segment having less uniqueness. The historical dataset will be train dataset minus the present dataset rows. We will try to find the data rows from the historical dataset that are very close(in terms of string distance) to the data rows of the present dataset. I will be using the **stringdist** functin from stringdist package. This function gives us the flexibility of using any distance measure, i will be using **jaccard** in this example. 
+
+##50 closest
+```{r}
+
+k <- train %>% filter(pick_month == 1 & pick_day == 31 & pick_hour == 5)
+
+#present dataset
+liveRow <- k[2,] #using only one row
+
+
+#historical dataset
+historicalData <- train %>% filter(!(pick_month == 1 & pick_day == 31 & pick_hour == 5))
+
+#distance computed
+similar_metrics <- Reduce(`+`, Map(stringdist, dplyr::select(historicalData, -trip_duration, -pickup_point, -dropoff_point, -id), dplyr::select(liveRow, -trip_duration, -pickup_point, dropoff_point, -id), method='jaccard'))
+
+
+historicalData$similar <- similar_metrics
+
+rows <- 50
+
+#arrange by the distance metric
+historicData <- historicalData %>% arrange(similar) %>% head(50) %>% mutate(data = "historic")
+liveRow$data <- "present"
+
+data <- bind_rows(liveRow, historicData)
+
+```
+
+```{r}
+
+hchart(density(historicData$trip_duration)) %>% hc_xAxis(title = list(text = "trip duration(seconds)"))
+```
+
+As we can see, the peak of the trip durations of the 50 closest data rows from historical data to a data row from the 'present' data is some where arond 511. Now, i present to you the dataset which includes that 50 historical rows as well as thar one present row.
+
+```{r}
+datatable(data)
+```
+
+Yes, the trip duration of the present data(the first row) is 511. Compare the trip duration of first row(which is from the 'present' data) to that of the successive rows, we find that trip duration of most of the data rows from historical data revolve around that 511 mark.
+
+**how to use this feature?** 
+You can use this feature to group or cluster same destinations by using only pickup_latitiude or pickup_longitude as features and finding the data rows that are very close to that data row. You can also use this distance measure as  **new feature** and it could help to let your algo correctly decide, how to treat that data row.
+
+
+#Cluster
+I talked with you, earlier, about the importance of clustering the latitudes and longitudes. This is really essential for getting the correct number of destinations(centroids) that have these pickup and dropoff points clustered arround it. This will also be helpful in prediction of trip durations.
+
+
+```{r, message=FALSE, warning=FALSE, results="hide"}
+
+#clust <- leaderCluster(points = i, radius = 4, max_iter = 10, distance = #"haversine")
+
+set.seed(76)
+cluster <- kmeans(i, 50, nstart = 15)
+
+train[, clusters := cluster$cluster]
+
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+
+cluster1_long <- train$pickup_longitude[train$clusters == 1] %>% head(100)
+cluster1_lat <- train$pickup_latitude[train$clusters == 1]%>% head(100)
+
+cluster2_long <- train$pickup_longitude[train$clusters == 2]%>% head(100)
+cluster2_lat <- train$pickup_latitude[train$clusters == 2]%>% head(100)
+
+cluster3_long <- train$pickup_longitude[train$clusters == 3]%>% head(100)
+cluster3_lat <- train$pickup_latitude[train$clusters == 3]%>% head(100)
+
+cluster4_long <- train$pickup_longitude[train$clusters == 4]%>% head(100)
+cluster4_lat <- train$pickup_latitude[train$clusters == 4]%>% head(100)
+
+cluster6_long <- train$pickup_longitude[train$clusters == 6]%>% head(100)
+cluster6_lat <- train$pickup_latitude[train$clusters == 6]%>% head(100)
+
+
+cluster1 = list(
+  type = 'circle',
+  xref ='x', yref='y',
+  x0=min(cluster1_long), y0=min(cluster1_lat),
+  x1=max(cluster1_long), y1=max(cluster1_lat),
+  opacity=0.25,
+  line = list(color="#835AF1"),
+  fillcolor="#835AF1")
+
+cluster2 = list(
+  type = 'circle',
+  xref ='x', yref='y',
+  x0=min(cluster2_long), y0=min(cluster2_lat),
+  x1=max(cluster2_long), y1=max(cluster2_lat),
+  opacity=0.25,
+  line = list(color="#1ABC9C"),
+  fillcolor="#1ABC9C")
+
+cluster3 = list(
+  type = 'circle',
+  xref ='x', yref='y',
+  x0=min(cluster3_long), y0=min(cluster3_lat),
+  x1=max(cluster3_long), y1=max(cluster3_lat),
+  opacity=0.25,
+  line = list(color="#F8C471"),
+  fillcolor="#F8C471")
+
+
+cluster4 = list(
+  type = 'circle',
+  xref ='x', yref='y',
+  x0=min(cluster4_long), y0=min(cluster4_lat),
+  x1=max(cluster4_long), y1=max(cluster4_lat),
+  opacity=0.25,
+  line = list(color="#F1948A"),
+  fillcolor="#F1948A")
+
+
+cluster6 = list(
+  type = 'circle',
+  xref ='x', yref='y',
+  x0=min(cluster6_long), y0=min(cluster6_lat),
+  x1=max(cluster6_long), y1=max(cluster6_lat),
+  opacity=0.25,
+  line = list(color="#3498DB"),
+  fillcolor="#3498DB")
+
+
+# updatemenus component
+updatemenus <- list(
+  list(
+    active = -1,
+    type = 'buttons',
+    buttons = list(
+
+      list(
+        label = "None",
+        method = "relayout",
+        args = list(list(shapes = c()))),
+
+      list(
+        label = "Cluster 1",
+        method = "relayout",
+        args = list(list(shapes = list(cluster1, c(), c(), c(), c())))),
+
+      list(
+        label = "Cluster 2",
+        method = "relayout",
+        args = list(list(shapes = list(c(), cluster2, c(), c(), c())))),
+
+      list(
+        label = "Cluster 3",
+        method = "relayout",
+        args = list(list(shapes = list(c(), c(), cluster3, c(), c())))),
+      
+      list(
+        label = "Cluster 4",
+        method = "relayout",
+        args = list(list(shapes = list(c(), c(), c(), cluster4, c())))),
+      
+      list(
+        label = "Cluster 6",
+        method = "relayout",
+        args = list(list(shapes = list(c(), c(), c(), c(), cluster6)))),
+
+      list(
+        label = "All",
+        method = "relayout",
+        args = list(list(shapes = list(cluster1,cluster2,cluster3, cluster4,
+                    cluster6))))
+    )
+  )
+)
+
+plot_ly(type = 'scatter', mode='markers') %>%
+  add_trace(x=cluster1_long, y=cluster1_lat, mode='markers', marker=list(color='#835AF1')) %>%
+  add_trace(x=cluster2_long, y=cluster2_lat, mode='markers', marker=list(color='#1ABC9C')) %>%
+  add_trace(x=cluster3_long, y=cluster3_lat, mode='markers', marker=list(color='#F8C471')) %>%
+    add_trace(x=cluster4_long, y=cluster4_lat, mode='markers', marker=list(color='#F1948A')) %>%
+    add_trace(x=cluster6_long, y=cluster6_lat, mode='markers', marker=list(color='#3498DB')) %>%
+  layout(title = "Highlight Pickup Clusters", showlegend = FALSE,
+         updatemenus = updatemenus)
+
+```
+
+
+* The clusters are well separated, except cluster 2 and cluster 3
+
+* We can experiment with different values of nstart.
+
+* We can also increase the value of the centers to be calculated 
+
+We have, only, plotted 100 points from each cluster. This lets us visualize the clusters more clearly without cluttering the plot with 1000+ points. We still need more efficiency to gauge actual number of pickup clusters. Cluster 3 has points that are well spread out and may contain some False Positives. 
+
+
+#Future prospects
+
+Though to predict the future trip duration, we will have to go throuh machine learning process, but we, still, can partly answer the 6th question by using the markov assumption.
+
+```{r, message=FALSE, warning=FALSE}
+
+d1 <- as.Date("2016-06-01")
+
+d2 <- as.Date("2016-06-30")
+
+last_30 <- train %>% mutate(date = as.Date(pickup_datetime)) %>% arrange(date) %>% filter(date %in% c(d1:d2)) %>% group_by(date) %>% mutate(center = mean(trip_duration))
+
+lag_3 <- unique(last_30[, c("date","center")])
+lag_3$id <- seq.int(nrow(lag_3))
+
+accumulate_by <- function(dat, var) {
+  var <- lazyeval::f_eval(var, dat)
+  lvls <- plotly:::getLevels(var)
+  dats <- lapply(seq_along(lvls), function(x) {
+    cbind(dat[var %in% lvls[seq(1, x)], ], frame = lvls[[x]])
+  })
+  dplyr::bind_rows(dats)
+}
+
+df <- lag_3 %>% as.data.frame() %>%
+  accumulate_by(~id)
+
+ df %>%
+  plot_ly(
+    x = ~id, 
+    y = ~center, 
+    frame = ~frame,
+    type = 'scatter', 
+    mode = 'lines', 
+    fill = 'tozeroy', 
+    fillcolor='rgba(114, 186, 59, 0.5)',
+    line = list(color = 'rgb(114, 186, 59)'),
+    text = ~paste("Day: ", id, "<br>duration: s", center), 
+    hoverinfo = 'text'
+  ) %>%
+  layout(
+    title = "Median trip distribution of last 30 days",
+    yaxis = list(
+      title = "Duration(seconds)", 
+      range = c(0,1400), 
+      zeroline = F,
+      tickprefix = "s"
+    ),
+    xaxis = list(
+      title = "Day", 
+      range = c(0,30), 
+      zeroline = F, 
+      showgrid = F
+    )
+  ) %>% 
+  animation_opts(
+    frame = 100, 
+    transition = 0, 
+    redraw = FALSE
+  ) %>%
+  animation_slider(
+    currentvalue = list(
+      prefix = "Day "
+    )
+  )
+
+```
+
+
+* This plot is very informative.
+
+* You can see, the trend is downwards.
+
+* Those peaks smell like seasonality. There is surely some sort of seasonality    present.
+
+
+A lot of thing seems to be going in the above plot of last 30 days. We should really try to extract much of the above information by using lag of every date. Even if this doesn't work, it surely deserves a try for the effect it has on the future predictions
+
+
+#The unaswered question
+
+I told you at the start that i would answer the question that what is the actual reason that vendor 2 lags behind vendor 1 in every department. Well, here we go.
+
+Well, do your remember the unexplained mystery of why 5-passenger rides had highest ride counts after 1 and 2 passenger rides. Actually, i am not going to answer that mystery, right now, but let's explore that fact more.
+
+
+**After seeing this pie chart, i hope you get your answer?**
+
+
+```{r, message=FALSE, warning=FALSE}
+
+#data with passenger_count only equal to 5
+sub1 <- train[passenger_count == 5, ]
+#data with passenger_count equal to any value other than 5
+sub2 <- train[passenger_count != 5, ]
+
+#plot of data having only 5 as passenger_count
+hchart(as.character(sub1$vendor_id), type ="pie")
+
+```
+
+
+**if not then compare the above one with this pie chart**
+```{r}
+
+#plot of data having passenger_count other than 5
+hchart(as.character(sub2$vendor_id), type = "pie")
+
+```
+
+Yes, the difference of 8%, which we saw at the start, in the ridership numbers can be greatly explained by the difference between the 5-passenger rides done by both of these vendors. But then what about the different of trip duration between the vendors?
+
+So, now,let us plot mean trip durations
+
+```{r}
+
+#
+sub1[, date := as.Date(pickup_datetime)]
+sub2[, date:= as.Date(pickup_datetime)] 
+new1 <- sub1[, .(mean_trip = mean(trip_duration)), by =  date]
+new2 <- sub2[, .(mean_trip = mean(trip_duration)), by = date]
+
+all <- left_join(new1, new2, by = "date")
+
+setnames(all, c("mean_trip.x", "mean_trip.y"), c("y1", "y2"))
+
+highchart() %>% hc_chart(zoomType = "xy") %>% hc_xAxis(data= all$date) %>% hc_add_series(data = all$y1, type = "line", name = "5 passenger") %>% hc_add_series(data = all$y2, type = "line", name = "not 5 passenger") 
+
+```
+
+The mean trip duration of 5-passenger rides are on the higher side as opposed to the rides  that don't have 5 passegers. The higher trip durations of vendor 2 can be greatly explained by this effect to.
+
+
+#Animation
+
+This plot gives us the changing scenario of pickups and dropoffs, of both vendors together, over time, especially during months. 
+
+```{r}
+
+set.seed(23)
+train %>% sample_frac(0.003, replace = F) %>%
+   plot_ly(
+     x = ~pickup_latitude, 
+     y = ~pickup_longitude, 
+     size = ~trip_duration, 
+     color = ~as.factor(vendor_id), 
+     frame = ~pick_month, 
+     text = ~pickup_point, 
+     hoverinfo = "text",
+     type = 'scatter',
+     mode = 'markers', 
+     colors = "Set1"
+   ) %>%
+   animation_opts(
+     1000, easing = "elastic", redraw = FALSE
+   ) %>% 
+   animation_button(
+     x = 1, xanchor = "right", y = 0, yanchor = "bottom"
+   ) %>%
+   animation_slider(
+     currentvalue = list(prefix = "MONTH ", font = list(color="red"))
+   )
+ 
+
+```
+
+**Please click the play button**
+
+The visualisations and necessary information conveyed to our employer, i hope he/she will be satisfied, as for the sixth question, we solve it by doing machine learning process, and this will done in the machine learning tutorial.
+
+**Note**- This exploration isn't exhaustive and more new findings and visualisation will be added in the further. Hope this exploration helped you in some way, please upvote, if you found this notebook useful. 
+
+Also, i would look into the cluster plot and why it isn't being displayed properly.
+
+
+
+
+
+
+
+
+
