@@ -6,4 +6,4 @@ The challenege was to improve the build an algorithm that can improve the efficc
 
 For more info: https://www.kaggle.com/competitions/ieee-fraud-detection
 
-Please feel free to visit my kaggle profile - kaggle.com/nandys
+Please feel free to visit my kaggle profile - https://www.kaggle.com/nandys
