@@ -1,0 +1,128 @@
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(gridExtra)
+
+
+
+dataset <- read.csv("Airplane_Crashes_and_Fatalities_Since_1908.csv", header = T, stringsAsFactors = F)
+#let's do the formalities
+str(dataset)
+summary(dataset)
+
+#let's do some data cleaning.
+names(dataset) <- tolower(names(dataset))
+names(dataset)[5] <- "flight"
+
+#formatting the Date variable
+dataset$date <- as.Date(dataset$date, format = "%m/%d/%Y")
+dataset$year <- year(dataset$date)
+dataset$month <- month(dataset$date)
+dataset$day <- day(dataset$date)
+
+
+#yearly crashes
+year <- as.data.frame(table(dataset$year))
+c1 <- ggplot(year, aes(y = Freq, x = Var1, group = 1))  + geom_line(size = 1, linetype = 1, color = "red") + geom_point(size = 3, shape = 20, fill = "white")+ theme_dark() + xlab("years") + ylab("number of crashes") + scale_x_discrete(breaks = seq(from = 1908, to = 2009, by = 10)) + ggtitle("Total number of crashes per year")
+c1
+#monthly crashes
+month <- as.data.frame(table(dataset$month))
+c2 <- ggplot(month, aes(y = Freq, x = Var1, group = 1))  + geom_line(size = 1, linetype = 1, color = "red") + geom_point(size = 3, shape = 20, fill = "white")+ theme_dark() + xlab("months") + ylab("number of crashes")  + ggtitle("Total number of crashes per month")
+c2
+#day wise crashes
+day <- as.data.frame(table(dataset$day))
+c3 <- ggplot(day, aes(y = Freq, x = Var1, group = 1))  + geom_line(size = 1, linetype = 1, color = "red") + geom_point(size = 3, shape = 20, fill = "white")+ theme_dark() + xlab("days") + ylab("number of crashes")   + ggtitle("Total number of crashes per day")
+c3
+
+#combined plot
+grid.arrange(c1, arrangeGrob(c2, c3), nrow = 2)
+
+
+#yearly fatalities
+fatalities <- dataset %>% filter(!is.na(fatalities)) %>% group_by( year) %>% summarise(total = sum(fatalities))
+f1 <- ggplot(fatalities, aes(y = total, x = year, group = 1))  + geom_line(size = 1, linetype = 1, color = "red") + geom_point(size = 3, shape = 20, fill = "white")+ theme_dark() + xlab("years") + ylab("number of fatalities") + scale_x_continuous(breaks = seq(from = 1908, to = 2009, by = 10))  + ggtitle("Total number of fatalities per year")
+f1
+
+#monthly fatalities
+fatalities1 <- dataset %>% filter(!is.na(fatalities)) %>% group_by(month) %>% summarise(total = sum(fatalities))
+f2 <- ggplot(fatalities1, aes(y = total, x = month, group = 1))  + geom_line(size = 1, linetype = 1, color = "red") + geom_point(size = 3, shape = 20, fill = "white")+ theme_dark() + xlab("months") + ylab("number of fatalities") + scale_x_continuous(breaks = seq(from = 1, to = 12, by = 1)) + ggtitle("Total number of fatalities per month")
+f2 
+
+#day wise fatalities
+fatalities2 <- dataset %>% filter(!is.na(fatalities)) %>% group_by(day) %>% summarise(total = sum(fatalities))
+f3 <- ggplot(fatalities2, aes(y = total, x = day, group = 1))  + geom_line(size = 1, linetype = 1, color = "red") + geom_point(size = 3, shape = 20, fill = "white")+ theme_dark() + xlab("days") + ylab("number of fatalities")  + scale_x_continuous(breaks = seq(from = 1, to = 31, by = 1)) + ggtitle("Total number of fatalities per day")
+f3
+
+grid.arrange(f1, arrangeGrob(f2, f3), nrow = 2)
+
+
+
+#No of passengers aboard
+passengers <- dataset %>% filter(!is.na(aboard)) %>% group_by(year) %>% summarise(total = sum(aboard))
+p1 <- ggplot(passengers, aes(y = total, x = year, group = 1))  + geom_line(size = 1, linetype = 1, color = "red") + geom_point(size = 3, shape = 20, fill = "white")+ theme_dark() + xlab("years") + ylab("number of passengers")  + scale_x_continuous(breaks = seq(from = 1908, to = 2009, by = 10)) + ggtitle("Total number of passengers per year")
+p1
+
+
+passengers1 <- dataset %>% filter(!is.na(aboard)) %>% group_by(month) %>% summarise(total = sum(aboard))
+p2 <- ggplot(passengers1, aes(y = total, x = month, group = 1))  + geom_line(size = 1, linetype = 1, color = "red") + geom_point(size = 3, shape = 20, fill = "white")+ theme_dark() + xlab("month") + ylab("number of passengers")  + scale_x_continuous(breaks = seq(from = 1, to = 12, by = 1)) + ggtitle("Total number of passengers per month")
+p2
+
+passengers2 <- dataset %>% filter(!is.na(aboard)) %>% group_by(day) %>% summarise(total = sum(aboard))
+p3 <- ggplot(passengers2, aes(y = total, x =day , group = 1))  + geom_line(size = 1, linetype = 1, color = "red") + geom_point(size = 3, shape = 20, fill = "white")+ theme_dark() + xlab("day") + ylab("number of passengers")  + scale_x_continuous(breaks = seq(from = 1, to = 31, by = 1)) + ggtitle("Total number of passengers per day")
+p3
+
+grid.arrange(p1, arrangeGrob(p2, p3), nrow = 2)
+
+
+#Passengers Survived
+dataset$Survived <- dataset$aboard - dataset$fatalities
+
+survived <- dataset %>% filter(!is.na(Survived)) %>% group_by(year) %>% summarise(total = sum(Survived))
+s1 <- ggplot(survived, aes(y = total, x =year , group = 1))  + geom_line(size = 1, linetype = 1, color = "red") + geom_point(size = 3, shape = 20, fill = "white")+ theme_dark() + xlab("years") + ylab("number of Survivors")  + scale_x_continuous(breaks = seq(from = 1908, to = 2009, by = 10)) + ggtitle("Total number of Survivors per year")
+s1
+
+survived1 <- dataset %>% filter(!is.na(Survived)) %>% group_by(month) %>% summarise(total = sum(Survived)) 
+s2 <- ggplot(survived1, aes(y = total, x = month , group = 1))  + geom_line(size = 1, linetype = 1, color = "red") + geom_point(size = 3, shape = 20, fill = "white")+ theme_dark() + xlab("months") + ylab("number of Survivors")  + scale_x_continuous(breaks = seq(from = 1, to = 12, by = 1)) + ggtitle("Total number of Survivors per month")
+s2
+
+survived2 <- dataset %>% filter(!is.na(Survived)) %>% group_by(day) %>% summarise(total = sum(Survived)) 
+s3 <- ggplot(survived2, aes(y = total, x = day , group = 1))  + geom_line(size = 1, linetype = 1, color = "red") + geom_point(size = 3, shape = 20, fill = "white")+ theme_dark() + xlab("days") + ylab("number of Survivors")  + scale_x_continuous(breaks = seq(from = 1, to = 31, by = 1)) + ggtitle("Total number of Survivors per day")
+s3
+
+grid.arrange(s1, arrangeGrob(s2, s3), nrow = 2)
+
+
+#fatalities every operator
+fatalities_per_op <- dataset %>% group_by(operator) %>% summarize(Count = sum(fatalities))
+
+fatalities_per_op <- fatalities_per_op[-1, ]
+
+fatalities_per_op <- arrange(fatalities_per_op, desc(Count))
+
+f_op <- ggplot(fatalities_per_op[1:10,], aes(x = reorder(factor(operator), Count) , y = Count, alpha = Count)) + geom_bar(stat = "identity", fill = "red") + xlab("operators") + ylab("Number of fatalities") + ggtitle("Top 10 Operators with most fatalities") + coord_flip()                           
+f_op
+
+#fatalities every aircraft type
+fatalities_per_type <- dataset %>% group_by(type) %>% summarise(Count = sum(fatalities))
+
+fatalities_per_type <- arrange(fatalities_per_type, desc(Count))
+
+f_ty <- ggplot(fatalities_per_type[1:10,], aes(x = reorder(factor(type), Count), y = Count, alpha = Count)) + geom_bar(stat = "identity", fill = "black") + xlab("Aircraft types") + ylab("Number of fatalities") + ggtitle("Top 10 Aircraft types with most fatalities") + coord_flip()
+f_ty
+
+#combined plot
+grid.arrange(f_op, f_ty, ncol = 1, nrow = 2)
+
+crash_freq <- dataset %>% group_by(operator) %>% summarise(Freq = n())
+
+crash_freq <- arrange(crash_freq, desc(Freq))
+cf <- ggplot(crash_freq[1:10,], aes(x = reorder(factor(operator), Freq), y = Freq, alpha = Freq)) + geom_bar(stat = "identity", fill = "white") + xlab("Operators") + ylab("number of crashes") + ggtitle("Top 10 Operators with most crashes") + coord_flip() + theme_dark()
+cf
+
+crash_freq_by_type <- dataset %>% group_by(type) %>% summarise(Freq = n())
+crash_freq_by_type <- arrange(crash_freq_by_type, desc(Freq))
+
+cft <- ggplot(crash_freq_by_type[1:10,], aes(x = reorder(factor(type), Freq), y = Freq, alpha = Freq)) + geom_bar(stat = "identity", fill = "green") + xlab("Types") + ylab("Number of crashes") + ggtitle("Top 10 Aircraft types with most crashes") + coord_flip() + theme_dark()
+cft
+
+grid.arrange(cf, cft, ncol = 1, nrow = 2)
